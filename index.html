@@ -3,16 +3,65 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ollama Qdrant RAG Dashboard</title>
+    <title>Ollama Qdrant RAG Dashboard & Query Interface</title>
     <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* Custom font import and utility classes */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        
+        /* ------------------- CSS Variables (Theme Base) ------------------- */
+        :root {
+            /* Dark Theme (Default) */
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border-color: #30363d;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+        }
+
+        .light-theme {
+            /* Light Theme */
+            --bg-primary: #ffffff;
+            --bg-secondary: #f6f8fa;
+            --bg-tertiary: #e1e4e8;
+            --border-color: #d1d5da;
+            --text-primary: #24292e;
+            --text-secondary: #6a737d;
+        }
+        
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #0d1117; /* Dark background */
+            background-color: var(--bg-primary); 
+            color: var(--text-primary);
+            transition: background-color 0.3s, color 0.3s;
         }
+        
+        .dashboard-card {
+            background-color: var(--bg-secondary);
+            border-color: var(--border-color);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+
+        .section-box {
+            background-color: var(--bg-tertiary);
+            border-color: var(--border-color);
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+
+        .input-field {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+
+        .code-box {
+            background-color: var(--bg-primary);
+            transition: background-color 0.3s;
+        }
+
         .status-pill {
             padding: 0.25rem 0.75rem;
             border-radius: 9999px;
@@ -33,55 +82,114 @@
             50% { transform: scale(1.2); opacity: 0.7; }
             100% { transform: scale(1); opacity: 1; }
         }
+        /* Custom scrollbar for answer box */
+        #rag-answer {
+            white-space: pre-wrap;
+            min-height: 10rem;
+            max-height: 20rem;
+            overflow-y: auto;
+        }
+        
+        /* Theme Toggle Styling */
+        .toggle-switch {
+            cursor: pointer;
+            width: 3rem;
+            height: 1.5rem;
+            border-radius: 9999px;
+            position: relative;
+            transition: background-color 0.3s;
+            border: 1px solid var(--border-color);
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .toggle-switch:after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 1rem;
+            height: 1rem;
+            border-radius: 50%;
+            background: var(--text-primary);
+            transition: left 0.3s;
+        }
+        
+        /* Dark Theme Default */
+        .toggle-switch { background-color: #21262d; }
+        .toggle-switch.toggled { background-color: #4CAF50; }
+        .toggle-switch.toggled:after { left: calc(100% - 2px - 1rem); }
+
+        /* Icon styling */
+        .sun-icon { display: none; }
+        .light-theme .moon-icon { display: none; }
+        .light-theme .sun-icon { display: inline-block; color: orange; }
+
     </style>
 </head>
-<body class="flex items-center justify-center min-h-screen p-4">
+<body class="flex items-start justify-center min-h-screen p-4">
 
     <!-- Dashboard Container -->
-    <div class="w-full max-w-4xl bg-gray-800 p-8 rounded-xl shadow-2xl border border-gray-700">
-        <h1 class="text-3xl font-bold text-white mb-6 border-b border-gray-700 pb-4">
-            RAG Service Health & Ingestion
-        </h1>
+    <div class="w-full max-w-4xl p-8 rounded-xl shadow-2xl border dashboard-card">
+        
+        <!-- Header and Theme Switch -->
+        <div class="flex justify-between items-center mb-6 border-b pb-4" style="border-color: var(--border-color);">
+            <h1 class="text-3xl font-bold">
+                RAG Service Health & Ingestion
+            </h1>
+            <div class="flex items-center space-x-2">
+                <span class="text-sm font-medium" style="color: var(--text-secondary);">Theme</span>
+                <button onclick="toggleTheme()" class="toggle-switch" id="theme-toggle">
+                    <!-- Moon Icon (Visible in Dark Mode) -->
+                    <svg class="moon-icon w-4 h-4 absolute top-1/2 left-2 transform -translate-y-1/2 text-yellow-300" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M17.293 13.593A5 5 0 118.406 2.56 5.002 5.002 0 0117.293 13.593z"></path>
+                    </svg>
+                    <!-- Sun Icon (Visible in Light Mode) -->
+                    <svg class="sun-icon w-4 h-4 absolute top-1/2 right-2 transform -translate-y-1/2 text-orange-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 00-.707-.707l-.707.707a1 1 0 001.414 1.414l.707-.707a1 1 0 00-.707-1.414zM10 15a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zm-4.95-.464l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zm-2.12-10.607a1 1 0 011.414-.707l.707.707a1 1 0 01-1.414 1.414l-.707-.707a1 1 0 01-.707-1.414zM3 10a1 1 0 011-1h1a1 1 0 110 2H4a1 1 0 01-1-1zm14 0a1 1 0 01-1-1h-1a1 1 0 110 2h1a1 1 0 011-1z"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
         
         <!-- Status Grid -->
         <div id="status-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             
             <!-- Overall Status -->
-            <div class="bg-gray-700 p-4 rounded-lg shadow-md">
-                <p class="text-sm text-gray-400 font-medium">Service Status</p>
+            <div class="p-4 rounded-lg shadow-md section-box">
+                <p class="text-sm font-medium" style="color: var(--text-secondary);">Service Status</p>
                 <div id="status-overall" class="status-pill bg-yellow-900 text-yellow-300 mt-2">
                     <span class="pulse-dot bg-yellow-300"></span>Loading...
                 </div>
             </div>
 
             <!-- Qdrant Status -->
-            <div class="bg-gray-700 p-4 rounded-lg shadow-md">
-                <p class="text-sm text-gray-400 font-medium">Qdrant Store</p>
+            <div class="p-4 rounded-lg shadow-md section-box">
+                <p class="text-sm font-medium" style="color: var(--text-secondary);">Qdrant Store</p>
                 <div id="status-qdrant" class="status-pill bg-gray-600 text-gray-300 mt-2">
                     N/A
                 </div>
             </div>
 
             <!-- Vector Count -->
-            <div class="bg-gray-700 p-4 rounded-lg shadow-md">
-                <p class="text-sm text-gray-400 font-medium">Vector Count</p>
+            <div class="p-4 rounded-lg shadow-md section-box">
+                <p class="text-sm font-medium" style="color: var(--text-secondary);">Vector Count</p>
                 <div id="status-vector-count" class="text-2xl font-extrabold text-green-400 mt-2">
                     0
                 </div>
             </div>
 
             <!-- LLM Model -->
-            <div class="bg-gray-700 p-4 rounded-lg shadow-md col-span-1 md:col-span-2 lg:col-span-1">
-                <p class="text-sm text-gray-400 font-medium">LLM Model</p>
-                <code id="status-llm-model" class="block bg-gray-900 text-purple-400 p-1 rounded text-xs mt-2">
+            <div class="p-4 rounded-lg shadow-md col-span-1 md:col-span-2 lg:col-span-1 section-box">
+                <p class="text-sm font-medium" style="color: var(--text-secondary);">LLM Model</p>
+                <code id="status-llm-model" class="block p-1 rounded text-xs mt-2 code-box text-purple-400">
                     Loading...
                 </code>
             </div>
 
             <!-- Embedding Model -->
-             <div class="bg-gray-700 p-4 rounded-lg shadow-md">
-                <p class="text-sm text-gray-400 font-medium">Embedding Model</p>
-                <code id="status-embed-model" class="block bg-gray-900 text-blue-400 p-1 rounded text-xs mt-2">
+             <div class="p-4 rounded-lg shadow-md section-box">
+                <p class="text-sm font-medium" style="color: var(--text-secondary);">Embedding Model</p>
+                <code id="status-embed-model" class="block p-1 rounded text-xs mt-2 code-box text-blue-400">
                     Loading...
                 </code>
             </div>
@@ -89,21 +197,72 @@
         </div>
 
         <!-- Ingestion Control -->
-        <div class="bg-gray-700 p-6 rounded-xl shadow-inner border border-gray-600">
-            <h2 class="text-xl font-semibold text-white mb-4">Data Ingestion</h2>
-            <button id="ingest-button" 
-                    class="w-full sm:w-auto px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg transition duration-150 ease-in-out disabled:bg-gray-500 disabled:cursor-not-allowed"
-                    onclick="triggerIngestion()">
-                Trigger Full Ingestion
-            </button>
-            <p id="ingestion-message" class="mt-4 text-sm text-gray-300 h-6"></p>
+        <div class="p-6 rounded-xl shadow-inner border section-box mb-8">
+            <h2 class="text-xl font-semibold mb-4">Data Ingestion</h2>
+            <div class="flex flex-col sm:flex-row gap-4">
+                <button id="ingest-button" 
+                        class="w-full sm:w-auto flex-grow px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg transition duration-150 ease-in-out disabled:bg-gray-500 disabled:cursor-not-allowed"
+                        onclick="triggerIngestion()">
+                    Trigger Full Ingestion
+                </button>
+                
+                <button id="delete-button" 
+                        class="w-full sm:w-auto px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-lg transition duration-150 ease-in-out disabled:bg-gray-500 disabled:cursor-not-allowed"
+                        onclick="triggerDelete()">
+                    Delete All Data
+                </button>
+            </div>
+            
+            <p id="ingestion-message" class="mt-4 text-sm h-6" style="color: var(--text-secondary);"></p>
         </div>
+
+
+        <!-- RAG Query Interface -->
+        <h2 class="text-3xl font-bold mb-6 border-b pb-4" style="border-color: var(--border-color);">
+            RAG Query Interface
+        </h2>
+
+        <div class="p-6 rounded-xl shadow-inner border section-box">
+            <!-- Query Input -->
+            <div class="mb-4">
+                <label for="query-input" class="block text-sm font-medium mb-2" style="color: var(--text-secondary);">Enter your query:</label>
+                <input type="text" id="query-input" placeholder="e.g., What documents are supported?"
+                       class="w-full px-4 py-2 border rounded-lg focus:ring-purple-500 focus:border-purple-500 shadow-sm input-field"
+                       onkeydown="if(event.key === 'Enter') handleQuery()">
+            </div>
+            
+            <!-- Submit Button -->
+            <button id="query-button" 
+                    class="w-full px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg shadow-lg transition duration-150 ease-in-out disabled:bg-gray-500 disabled:cursor-not-allowed"
+                    onclick="handleQuery()">
+                Ask RAG Assistant
+            </button>
+            <p id="query-status-message" class="mt-4 text-sm text-yellow-400 h-6"></p>
+
+            <!-- Results Display -->
+            <div class="mt-6 border-t pt-6" style="border-color: var(--border-color);">
+                <h3 class="text-xl font-semibold mb-3">Answer:</h3>
+                <pre id="rag-answer" class="p-4 rounded-lg text-sm transition duration-300 code-box" style="color: var(--text-primary);">
+                    Your RAG answer will appear here.
+                </pre>
+            </div>
+
+            <!-- Sources Display -->
+            <div class="mt-4">
+                <h3 class="text-lg font-semibold mb-2">Sources:</h3>
+                <div id="rag-sources" class="space-y-2 text-sm" style="color: var(--text-secondary);">
+                    <!-- Source items will be injected here -->
+                    <p class="text-xs italic" id="sources-placeholder" style="color: var(--text-secondary);">
+                        Sources will be listed here after a successful query.
+                    </p>
+                </div>
+            </div>
+        </div>
+
 
     </div>
 
     <script>
-        // FIX: Explicitly set the port to 8000, as the FastAPI backend is running there.
-        // window.location.origin often omits the port, causing a 404 error.
         const API_BASE_URL = window.location.protocol + '//' + window.location.hostname + ':8000';
         
         const statusElements = {
@@ -113,8 +272,38 @@
             llmModel: document.getElementById('status-llm-model'),
             embedModel: document.getElementById('status-embed-model'),
             ingestButton: document.getElementById('ingest-button'),
-            ingestionMessage: document.getElementById('ingestion-message')
+            deleteButton: document.getElementById('delete-button'),
+            ingestionMessage: document.getElementById('ingestion-message'),
+            
+            // QUERY ELEMENTS
+            queryInput: document.getElementById('query-input'),
+            queryButton: document.getElementById('query-button'),
+            queryStatusMessage: document.getElementById('query-status-message'),
+            ragAnswer: document.getElementById('rag-answer'),
+            ragSources: document.getElementById('rag-sources'),
+            sourcesPlaceholder: document.getElementById('sources-placeholder'),
+            themeToggle: document.getElementById('theme-toggle'), // NEW
         };
+        
+        // --- Theme Toggle Logic (NEW) ---
+        function toggleTheme() {
+            const body = document.body;
+            body.classList.toggle('light-theme');
+            statusElements.themeToggle.classList.toggle('toggled');
+            
+            const currentTheme = body.classList.contains('light-theme') ? 'light' : 'dark';
+            localStorage.setItem('theme', currentTheme);
+        }
+
+        function loadTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+
+            if (savedTheme === 'light' || (!savedTheme && prefersLight)) {
+                document.body.classList.add('light-theme');
+                statusElements.themeToggle.classList.add('toggled');
+            }
+        }
         
         // --- Utility Function to set pill style ---
         function setPillStatus(element, status) {
@@ -123,18 +312,22 @@
             
             let colorClass, dotColorClass;
 
-            // NEW LOGIC: Green for success (ONLINE/READY)
+            // Determine colors based on status
             if (status === "READY" || status === "ONLINE") {
                 colorClass = 'bg-green-900 text-green-300';
                 dotColorClass = 'bg-green-300';
             } 
-            // BLUE LOGIC: For temporary, known activity (Ingestion/Busy)
             else if (status === "BUSY" || status === "Processing...") {
                 colorClass = 'bg-blue-900 text-blue-300';
                 dotColorClass = 'bg-blue-300';
             }
-            // RED LOGIC: All other non-positive/error states (Offline, Empty, Unavailable, API Error)
+            // MODIFIED: Catch the specific 'Collection Missing' status from the API
+            else if (status.includes("EMPTY") || status.includes("Missing")) {
+                colorClass = 'bg-orange-900 text-orange-300';
+                dotColorClass = 'bg-orange-300';
+            }
             else { 
+                 // Red for errors/offline/unavailable
                  colorClass = 'bg-red-900 text-red-300';
                  dotColorClass = 'bg-red-300';
             }
@@ -147,7 +340,6 @@
         // --- Fetch Status Function ---
         async function fetchStatus() {
             try {
-                // Now uses the explicit port 8000
                 const response = await fetch(`${API_BASE_URL}/status`); 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -157,7 +349,7 @@
                 // 1. Overall Status
                 setPillStatus(statusElements.overall, "ONLINE");
 
-                // 2. Qdrant Status
+                // 2. Qdrant Status (Uses improved status from API)
                 setPillStatus(statusElements.qdrant, data.qdrant_status);
 
                 // 3. Vector Count
@@ -170,7 +362,6 @@
 
             } catch (error) {
                 console.error("Error fetching status:", error);
-                // Update overall status to show the connection problem
                 setPillStatus(statusElements.overall, "OFFLINE");
                 setPillStatus(statusElements.qdrant, 'API Error');
                 statusElements.vectorCount.textContent = 'Error';
@@ -185,15 +376,14 @@
             const originalText = button.textContent;
             
             button.disabled = true;
+            statusElements.deleteButton.disabled = true; 
             button.textContent = "Ingesting... Please wait (this may take a minute)";
             statusElements.ingestionMessage.textContent = "Starting ingestion process. Do not refresh.";
             
-            // Revert status pills to 'Loading' temporarily
             setPillStatus(statusElements.qdrant, "Processing...");
             setPillStatus(statusElements.overall, "BUSY");
             
             try {
-                // Now uses the explicit port 8000
                 const response = await fetch(`${API_BASE_URL}/ingest`, { 
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
@@ -203,7 +393,6 @@
 
                 if (response.ok) {
                     statusElements.ingestionMessage.textContent = result.message;
-                    // Immediately fetch status to update vector count
                     await fetchStatus(); 
                 } else {
                     statusElements.ingestionMessage.textContent = `Error: ${result.detail || "Failed to start ingestion."}`;
@@ -214,15 +403,144 @@
                 statusElements.ingestionMessage.textContent = `FATAL ERROR: Could not connect to API for ingestion.`;
             } finally {
                 button.disabled = false;
+                statusElements.deleteButton.disabled = false; 
                 button.textContent = originalText;
-                // Fetch status one last time for final state
+                fetchStatus();
+            }
+        }
+
+        // --- Delete Function (MODIFIED for better status update) ---
+        async function triggerDelete() {
+            // Use a custom modal instead of alert/confirm
+            const isConfirmed = confirm("WARNING: This will PERMANENTLY delete the Qdrant collection and all local index data. Are you sure you want to proceed?");
+
+            if (!isConfirmed) {
+                statusElements.ingestionMessage.textContent = "Deletion cancelled.";
+                return;
+            }
+
+            const button = statusElements.deleteButton;
+            const originalText = button.textContent;
+            
+            button.disabled = true;
+            statusElements.ingestButton.disabled = true; 
+            button.textContent = "Deleting all data...";
+            statusElements.ingestionMessage.textContent = "Wiping Qdrant collection and local index. Do not interrupt.";
+            
+            setPillStatus(statusElements.qdrant, "Processing...");
+            setPillStatus(statusElements.overall, "BUSY");
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/ingest/delete`, { 
+                    method: 'DELETE', 
+                });
+                
+                const result = await response.json();
+
+                if (response.ok) {
+                    statusElements.ingestionMessage.textContent = result.message;
+                    // IMMEDIATE FEEDBACK FIX: Set the status to reflect an empty state right away
+                    setPillStatus(statusElements.qdrant, "EMPTY (Collection Deleted)"); 
+                    statusElements.vectorCount.textContent = '0';
+                    await fetchStatus(); // Fetch status to confirm/cleanup state
+                } else {
+                    statusElements.ingestionMessage.textContent = `Error: ${result.detail || "Failed to delete data."}`;
+                }
+
+            } catch (error) {
+                console.error("Deletion failed:", error);
+                statusElements.ingestionMessage.textContent = `FATAL ERROR: Could not connect to API for deletion.`;
+            } finally {
+                button.disabled = false;
+                statusElements.ingestButton.disabled = false; 
+                button.textContent = originalText;
                 fetchStatus();
             }
         }
 
 
+        // --- Query Function ---
+        async function handleQuery() {
+            const query = statusElements.queryInput.value.trim();
+            if (!query) {
+                statusElements.queryStatusMessage.textContent = "Please enter a query.";
+                return;
+            }
+
+            const button = statusElements.queryButton;
+            const originalText = button.textContent;
+            
+            // Clear previous results and messages
+            statusElements.ragAnswer.textContent = "Processing query...";
+            statusElements.ragSources.innerHTML = '';
+            statusElements.queryStatusMessage.textContent = "Sending query to RAG backend...";
+
+            button.disabled = true;
+            button.textContent = "Querying Ollama/Qdrant...";
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/query`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    // Success
+                    statusElements.ragAnswer.textContent = result.answer;
+                    statusElements.queryStatusMessage.textContent = "Query successful!";
+                    
+                    // Display sources
+                    displaySources(result.sources);
+
+                } else {
+                    // API Error (e.g., 503 Qdrant unavailable, 500 internal error)
+                    const errorMessage = result.detail || `HTTP Error ${response.status}: Failed to get answer.`;
+                    statusElements.ragAnswer.textContent = `Error: ${errorMessage}`;
+                    statusElements.queryStatusMessage.textContent = "Query failed.";
+                    statusElements.ragSources.innerHTML = `<p class="text-xs italic text-red-400">Error retrieving sources: ${errorMessage}</p>`;
+                }
+
+            } catch (error) {
+                console.error("Query failed:", error);
+                statusElements.ragAnswer.textContent = "FATAL ERROR: Could not connect to the RAG API.";
+                statusElements.queryStatusMessage.textContent = "Connection error.";
+            } finally {
+                button.disabled = false;
+                button.textContent = originalText;
+                // Clear the status message after a short delay
+                setTimeout(() => statusElements.queryStatusMessage.textContent = '', 5000);
+            }
+        }
+        
+        // --- Display Sources Function ---
+        function displaySources(sources) {
+            const sourcesContainer = statusElements.ragSources;
+            sourcesContainer.innerHTML = ''; // Clear previous sources
+
+            if (sources.length === 0) {
+                sourcesContainer.innerHTML = `<p class="text-xs italic" style="color: var(--text-secondary);">No relevant documents found in the vector store.</p>`;
+                return;
+            }
+
+            sources.forEach((source, index) => {
+                const sourceDiv = document.createElement('div');
+                sourceDiv.className = 'p-3 rounded-lg border hover:border-purple-500 transition duration-150 ease-in-out section-box';
+                sourceDiv.innerHTML = `
+                    <p class="font-bold" style="color: var(--text-primary);">Source ${index + 1}:</p>
+                    <p class="truncate text-sm text-blue-400">File: ${source.source}</p>
+                    <p class="text-xs" style="color: var(--text-secondary);">Similarity Score: ${source.similarity_score}</p>
+                `;
+                sourcesContainer.appendChild(sourceDiv);
+            });
+        }
+
+
         // --- Initial Load and Polling ---
         document.addEventListener('DOMContentLoaded', () => {
+            loadTheme();   // Load theme first
             fetchStatus(); // Fetch status immediately on load
             // Poll for status updates every 5 seconds
             setInterval(fetchStatus, 5000); 
