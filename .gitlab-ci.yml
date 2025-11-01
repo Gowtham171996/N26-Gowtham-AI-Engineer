@@ -48,6 +48,7 @@ lint:
   # Run on every branch push
   rules:
     - if: $CI_COMMIT_BRANCH
+      when: on_success # Explicitly set 'when' to test rule evaluation
 
 ---
 
