@@ -247,26 +247,6 @@ async def get_current_status():
         "embed_model": config['OLLAMA_EMBEDDING_MODEL']
     }
 
-
-@app.get("/healthcheck")
-async def health_check():
-    """Minimal endpoint for automated health checks."""
-    
-    qdrant_ok = False
-    try:
-        qdrant_client.get_collection(collection_name=COLLECTION_NAME)
-        qdrant_ok = True
-    except Exception:
-        pass 
-
-    # A simple, fast status response
-    return {
-        "status": "ok", 
-        "qdrant_status": "ready" if qdrant_ok else "unavailable",
-        "timestamp": time.time()
-    }
-
-
 @app.post("/ingest")
 async def trigger_ingestion():
     """
