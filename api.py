@@ -208,26 +208,6 @@ async def get_current_status():
         "embed_model": config['OLLAMA_EMBEDDING_MODEL']
     }
 
-
-@app.get("/healthcheck")
-async def health_check():
-    """Minimal endpoint for automated health checks."""
-    
-    qdrant_ok = False
-    try:
-        qdrant_client.get_collection(collection_name=COLLECTION_NAME)
-        qdrant_ok = True
-    except Exception:
-        pass 
-
-    # A simple, fast status response
-    return {
-        "status": "ok", 
-        "qdrant_status": "ready" if qdrant_ok else "unavailable",
-        "timestamp": time.time()
-    }
-
-
 @app.post("/ingest")
 async def trigger_ingestion():
     """Triggers the document ingestion process, reloading the Qdrant vector store."""
@@ -300,7 +280,8 @@ async def handle_rag_query(request: QueryRequest):
         raise
     except Exception as e:
         print(f"FATAL RAG ERROR: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error during RAG process.")
+        # MODIFIED: Return the specific error message to the client for better debugging
+        raise HTTPException(status_code=500, detail=f"Internal server error during RAG process: {e}")
 
 
 # --- Run the application ---

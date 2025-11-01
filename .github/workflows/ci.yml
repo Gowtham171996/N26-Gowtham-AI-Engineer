@@ -1,4 +1,3 @@
-# .github/workflows/ci.yml
 name: RAG Backend CI/CD Pipeline
 
 on:
@@ -6,9 +5,14 @@ on:
     branches: [ main, master, develop ]
   pull_request:
     branches: [ main, master, develop ]
+  workflow_dispatch: # Allows manual trigger for testing
+
+env:
+  # Define Docker Image settings once
+  DOCKER_IMAGE_NAME: gowthambc/n26rag
 
 jobs:
-  # 1. Code Linting Stage (Python Static Analysis)
+  # 1. Code Linting Stage (Python Static Analysis) - Linting temporarily disabled
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -19,20 +23,22 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
+          # Removed cache: 'pip' to prevent 'pip cache dir' failure with act
+          # cache: 'pip' 
 
       - name: Install dependencies and linters
         run: |
+          # Use a minimal install for linting efficiency if possible
           pip install -r requirements.txt
           pip install flake8
 
-      - name: Run Flake8 Linting
-        run: |
-          echo "Running flake8 linting..."
-          flake8 . --max-line-length=120 --exclude=venv,dist,.git,.github
-
-  # 2. Smoke Test Stage (Health Check & Root)
-  smoke_test:
+      # - name: Run Flake8 Linting # TEMPORARILY DISABLED AS REQUESTED
+      #   run: |
+      #     echo "Running flake8 linting..."
+      #     flake8 . --max-line-length=120 --exclude=venv,dist,.git,.github,docs,tests
+  
+  # 2. Test Stage (Combines Smoke and API Tests)
+  api_tests:
     runs-on: ubuntu-latest
     needs: [lint] # Depends on linting passing
     steps:
@@ -43,77 +49,61 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
+          # Removed cache: 'pip' to prevent 'pip cache dir' failure with act
+          # cache: 'pip' 
 
-      - name: Install dependencies and pytest
+      - name: Install dependencies and testing tools
         run: |
           pip install -r requirements.txt
           pip install pytest requests
 
       - name: Start FastAPI Server in Background
+        # FIX: Force inline execution by relying solely on bash -c command in a single line,
+        # and removing the explicit 'shell: bash' which seems to cause the temp file path error in act.
+        run: bash -c "python api.py & echo 'API_PID=$!' >> $GITHUB_ENV"
+        
+      - name: Wait for API Server to be Ready (Robust Polling)
         run: |
-          # Start the API server on the standard port
-          python api.py &
-          # Store PID in environment variable for cleanup later
-          echo "API_PID=$!" >> $GITHUB_ENV
-          echo "API started. Waiting 5 seconds for startup..."
-          sleep 5
-
-      - name: Run Smoke Test Health Check
+          # Poll the healthcheck endpoint for up to 30 seconds
+          bash -c 'for i in $(seq 1 30); do 
+            if curl --fail http://localhost:8000/healthcheck 2>/dev/null; then 
+              echo "API is ready after $i seconds."
+              exit 0
+            fi
+            echo "Waiting for API... ($i/30)"
+            sleep 1
+          done
+          echo "API failed to start after 30 seconds"
+          exit 1'
+          
+      - name: Run Smoke Tests (Health Check & Root Dashboard)
         run: |
           echo "Checking http://localhost:8000/healthcheck endpoint..."
-          # The --fail flag ensures a non-2xx status causes a pipeline failure
           curl --fail http://localhost:8000/healthcheck
-
-      - name: Run Smoke Test Root Dashboard
-        run: |
+          
           echo "Checking root endpoint for RAG dashboard content..."
           # Check for a unique string on the dashboard to ensure the UI is served
           curl -s -f http://localhost:8000/ | grep -q "RAG Service Health & Ingestion"
 
-      - name: Stop FastAPI Server
-        if: always() # Run cleanup even if tests fail
-        run: kill ${{ env.API_PID }} || true
-
-  # 3. API Test Stage (Comprehensive Tests)
-  api_test:
-    runs-on: ubuntu-latest
-    needs: [lint, smoke_test] # Depends on all previous stages
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies and pytest
-        run: |
-          pip install -r requirements.txt
-          pip install pytest requests
-
-      - name: Start FastAPI Server in Background
-        run: |
-          python api.py &
-          echo "API_PID=$!" >> $GITHUB_ENV
-          echo "API started. Waiting 5 seconds for startup..."
-          sleep 5
-
       - name: Run Comprehensive API Tests (Pytest)
         run: |
           echo "Running Comprehensive API Tests (using Pytest)..."
-          if [ -f tests/test_api.py ]; then pytest tests/test_api.py; else echo "WARNING: No 'tests/test_api.py' found. Skipping detailed API tests."; fi
+          # 'tests/test_api.py' is now present and ready to run.
+          pytest tests/test_api.py
 
       - name: Stop FastAPI Server
-        if: always()
-        run: kill ${{ env.API_PID }} || true
+        if: always() # Ensure cleanup runs even on test failure
+        # FIX: Force inline execution. Removed shell: bash.
+        run: |
+          if [ -n "${{ env.API_PID }}" ]; then
+            kill ${{ env.API_PID }} || true
+          fi
 
-  # 4. Docker Image Build Stage
-  build_image:
+  # 3. Docker Image Build and Push Stage
+  build_and_push_image:
     runs-on: ubuntu-latest
-    needs: [api_test] # Only build if all tests pass
+    needs: [api_tests] # Only build/push if all tests pass
+    if: github.event_name == 'push' # Only trigger this job on 'push' events
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -121,11 +111,29 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker Image
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          
+      - name: Extract Docker metadata (tags and labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
+            type=raw,value=v1.0 # Static tag from your comment, ensure consistency
+
+      - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: false # Do not push, only build as requested
-          tags: ${{ github.repository }}/rag-backend:${{ github.sha }}
+          # PUSH IS SET TO FALSE AS REQUESTED
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
