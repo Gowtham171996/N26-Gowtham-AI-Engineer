@@ -1,0 +1,6 @@
+old/
+.vscode/
+qdrant_storage/
+localrag.py
+localrag2.py
+__*

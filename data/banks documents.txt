@@ -1,0 +1,17 @@
+Bank documents—a guide to what's available
+N26 is called The Mobile Bank for a reason — you can download your balance statement, account confirmation, and other bank documents automatically in a digital format. The following bank documents are official documents and they’re valid without a signature. Let's find out a little more about them:
+
+Your bank statement is a document that reflects your total balance and every incoming and outgoing transaction in your N26 bank account, including your full name, IBAN and BIC. Here’s how you can download it. If a merchant requires a proof of payment from you, you can use your bank statement for this purpose.
+Your account confirmation, also known as an account ownership certificate, is a document that confirms the bank account registered in your name. It includes your full name, date of birth, account IBAN and BIC, date of the account opening and—if you wish—it can also include your current account balance and card number (partially hidden). Here’s how you can request it.
+The statement of fees is a document that reports all the bank fees you’ve been charged at N26 in the past year. Here’s how you can request it(new tab).
+A transfer confirmation is a document that confirms a transfer has been made to or from your N26 account. It includes details such as your full name, IBAN, BIC, transfer amount, date, reference text, and the recipient’s full name, IBAN, and BIC. This document is available for both outgoing and incoming transfers, as well as direct debit payments. Here’s how you can download it.
+Card payment confirmation: you can download the PDF file with the transaction confirmation from your mobile app or WebApp.
+Log into your N26 app
+From the list of transactions, select the card payment for which you want to download the confirmation
+Click on Download payment confirmation
+In the confirmation of the card payment, you'll find the bank details of the sender and recipient of the payment, including the amount of the transaction and the date on which it was made.
+Other confirmations:
+
+RIB (Relevé d'Identité Bancaire in French) is a document containing your main bank information—full name, legal address, IBAN and BIC—specific for the French authorities.
+In the WebApp: click on the download*(new tab) icon, scroll down to RIB and click on Request.
+If you no longer have an active N26 account, or if you’re a legal representative requesting documents such as an account confirmation, a SEPA transfer confirmation, balance statements, or a card payment confirmation, please submit your request using our webform for former customers(new tab).

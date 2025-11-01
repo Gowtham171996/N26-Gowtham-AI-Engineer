@@ -1,0 +1,42 @@
+How to use Moneybeam?
+MoneyBeam enables you to send money to your contacts instantly, without having to enter their bank details. You can also request a MoneyBeam from your contacts, in order to receive money. To use MoneyBeam, you and your contacts have to be visible as N26 users.
+
+Sending a MoneyBeam: 
+Copy link
+Select Send Money,
+In the contact list, select a recipient with an N26 icon on their profile
+Enter the amount and select Continue
+Enter an optional reference text or GIF* and select Continue
+Enter your confirmation PIN or confirm it with Biometrics (E.g. FaceID or Fingerprint)
+Confirm the transfer on the review screen
+In case you are sending a MoneyBeam via Web app, you’ll then need to either Confirm or Cancel the MoneyBeam via push notification in the app from your paired device. Once the MoneyBeam was confirmed in the mobile app, we can't reverse it or change the recipient's details.
+
+Instant Payment notifications
+Copy link
+When you send money with an instant payment solution (with an Instant SEPA transfer, MoneyBeam, or Bizum (in Spain only), you’ll receive a notification as soon as the beneficiary’s bank confirms that the funds have arrived in their account. If we don’t receive this confirmation within 10 seconds, your transfer will be automatically canceled, and the money will be restored to your N26 account. This also applies to standing orders and future-dated Instant Transfers.
+
+How to add a new recipient?
+Copy link
+From the Home screen choose the Send money tab
+On the contact list screen, simply select the + icon at the top right corner
+Select MoneyBeam 
+Enter the recipient's name and phone number or email address
+Alternatively, you can scan a QR code to input the recipient’s details
+Enter the amount and select Continue,
+Next, proceed by entering the optional reference text or GIF
+Enter your confirmation PIN or confirm it with Biometrics (E.g. FaceID or Fingerprint)
+Confirm the MoneyBeam on the review screen.
+Requesting a MoneyBeam:
+Copy link
+Select Add Money
+Tap Request from friends
+Select a contact from your list or add one by entering their phone number and email address
+Enter an amount and a reference
+As soon as your contact confirms your request, you will receive the amount you asked for
+What are the limits for MoneyBeams?
+Copy link
+Limit per 24 hours is €5,000
+*The GIFs are provided to you directly by Giphy, Inc. and not by N26. Be aware that Giphy is a US-based company who may process your personal data in the US. You can find information on how Giphy processes your personal data when you attach and send GIFs in the Giphy Privacy Policy(new tab).
+
+Would you like to tell your friends about us and earn some money at the same time? Learn more about ourfriend referral program.
+

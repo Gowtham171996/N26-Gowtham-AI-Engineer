@@ -1,0 +1,20 @@
+OLLAMA_LLM_MODEL: "gemma3:1b-it-qat"
+OLLAMA_EMBEDDING_MODEL: "nomic-embed-text" # Recommended for RAG tasks
+OLLAMA_BASE_URL: "http://localhost:11434"
+OLLAMA_TIMEOUT: 120.0
+OLLAMA_WORKERS: 8
+
+QDRANT_HOST: "localhost"
+QDRANT_PORT: 6333
+COLLECTION_NAME: "ai_knowledge_base_recursive"
+
+CONFIG_FILE_NAME: "config.yaml"
+VECTOR_STORE_PATH: "vector_store.json"
+SYSTEM_PROMPT_FILE: "systemprompt.txt"
+DATA_DIR: "data"
+PERSIST_DIR : "qdrant_storage"
+
+CHUNK_SIZE: 512
+CHUNK_OVERLAP: 48
+
+TOP_K_CHUNKS: 3
