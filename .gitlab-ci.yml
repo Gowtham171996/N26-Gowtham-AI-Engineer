@@ -1,0 +1,134 @@
+# This file defines the CI/CD pipeline for your Python FastAPI RAG backend.
+# We use the official Docker image to enable Docker-in-Docker (dind) services.
+image: docker:24.0.5
+
+variables:
+  # The name of the Docker image to build. This uses your project's registry path.
+  DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE/rag-backend
+  # Tag the image with the short commit SHA for unique builds
+  DOCKER_IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+  # Python version used for the application and linting
+  PYTHON_VERSION: 3.11
+  # Base URL for API testing within the CI environment
+  API_URL: http://localhost:8000
+
+# Define the sequence of jobs
+stages:
+  - lint
+  - smoke_test
+  - api_test
+  - build_image
+
+---
+
+## Helper Job Setup for Tests (Installing Dependencies)
+# A template to install dependencies for test stages, ensuring DRY principle.
+.test_setup: &test_setup
+  image: python:$PYTHON_VERSION-slim
+  before_script:
+    # Assuming all FastAPI/RAG dependencies are in requirements.txt
+    - pip install -r requirements.txt
+    # Install testing dependencies (pytest and requests for API calls)
+    - pip install pytest requests
+
+---
+
+## 1. Code Linting Stage
+# Runs static analysis to enforce code quality before building the image.
+lint:
+  stage: lint
+  # Use a lighter Python image for fast dependency installation
+  image: python:$PYTHON_VERSION-slim
+  script:
+    # 1. Install necessary linters (assuming you use flake8)
+    - pip install flake8
+    # 2. Run the linter on the current directory
+    - echo "Running flake8 linting..."
+    - flake8 . --max-line-length=120 --exclude=venv,dist,.git,.gitlab-ci.yml
+  # Run on every branch push
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+---
+
+## 2. Smoke Test Stage
+# Runs quick sanity checks (e.g., config loading, health check endpoint).
+smoke_test:
+  stage: smoke_test
+  <<: *test_setup
+  script:
+    - echo "Starting FastAPI server in background for smoke testing..."
+    # Start the API server in the background
+    - python api.py &
+    - export API_PID=$!
+    - echo "API started with PID $API_PID. Waiting for startup..."
+    # Wait for the server to be ready
+    - sleep 5 
+    
+    # 1. Run the health check endpoint (minimal check)
+    - echo "Running Smoke Test: Checking /healthcheck endpoint..."
+    - curl --fail $API_URL/healthcheck
+    
+    # 2. Check the root endpoint (dashboard existence)
+    - echo "Running Smoke Test: Checking root endpoint..."
+    - curl -s -f $API_URL/ | grep -q "RAG Service Health & Ingestion"
+
+    # Stop the background process
+    - kill $API_PID
+    - wait $API_PID || true
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+---
+
+## 3. API Test Stage
+# Runs comprehensive API unit and integration tests (e.g., /query endpoint).
+api_test:
+  stage: api_test
+  <<: *test_setup
+  script:
+    - echo "Starting FastAPI server in background for API testing..."
+    # Start the API server in the background
+    - python api.py &
+    - export API_PID=$!
+    - echo "API started with PID $API_PID. Waiting for startup..."
+    - sleep 5
+    
+    # 1. Run comprehensive tests (Placeholder for a user's test suite)
+    - echo "Running Comprehensive API Tests (using Pytest)..."
+    # This command assumes your detailed API tests are in 'tests/test_api.py' 
+    - if [ -f tests/test_api.py ]; then pytest tests/test_api.py; else echo "WARNING: No 'tests/test_api.py' found. Skipping detailed API tests."; fi
+    
+    # Stop the background process
+    - kill $API_PID
+    - wait $API_PID || true
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+---
+
+## 4. Docker Image Build Stage
+# Builds the Docker image based on your local 'Dockerfile'.
+build_image:
+  stage: build_image
+  # Use the Docker-in-Docker (dind) service to execute Docker commands
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  script:
+    # Login to the GitLab Container Registry (requires CI_REGISTRY_USER/PASSWORD variables)
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    # Build the image and tag it with the unique commit SHA
+    - docker build -t "$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG" .
+    # Tag it as 'latest' as well (optional, but good for local testing)
+    - docker tag "$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG" "$DOCKER_IMAGE_NAME:latest"
+    # Save the tag to an artifact so it can be used by a later deployment job
+    - echo "DOCKER_IMAGE_URL=$DOCKER_IMAGE_NAME:$DOCKER_IMAGE_TAG" > build.env
+  # Run on all branches (only if lint and tests pass)
+  rules:
+    - if: $CI_COMMIT_BRANCH
+  # This artifact stores metadata about the image build for the next job (push)
+  artifacts:
+    expire_in: 1 day
+    reports:
+      dotenv: build.env

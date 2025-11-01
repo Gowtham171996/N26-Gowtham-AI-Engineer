@@ -4,3 +4,4 @@ qdrant_storage/
 localrag.py
 localrag2.py
 __*
+docker-compose.yaml
