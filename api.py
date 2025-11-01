@@ -1,22 +1,18 @@
 import uvicorn
-import yaml
-import json
 import time
 import os
 import sys
-from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse # <-- Added for serving HTML
+from fastapi.responses import FileResponse, HTMLResponse 
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
-# --- Import Ingestion Logic ---
-from ingest import ingest_documents
-
+# --- Import Ingestion Logic & Config Loader ---
+from ingest import ingest_documents, load_config
 
 # --- Qdrant Integration ---
-from qdrant_client import QdrantClient, models
+from qdrant_client import QdrantClient
 from qdrant_client.http.models import CollectionInfo
 
 # --- LlamaIndex/Ollama Configuration ---
@@ -26,36 +22,36 @@ from llama_index.embeddings.ollama import OllamaEmbedding
 
 # --- Global State & Configuration Setup (STRICTLY FROM CONFIG) ---
 
-# Load configuration from config.yaml (SINGLE SOURCE OF TRUTH)
 try:
-    with open("config.yaml", 'r') as f:
-        config: Dict[str, Any] = yaml.safe_load(f)
+    # Load configuration from config.yaml (SINGLE SOURCE OF TRUTH)
+    config = load_config()
     print("INFO: Configuration loaded successfully from config.yaml.")
-except FileNotFoundError:
-    print("FATAL: config.yaml not found. The application requires this file and cannot proceed.")
-    sys.exit(1)
+        
+    # Apply LlamaIndex Settings
+    Settings.llm = Ollama(
+        model=config["OLLAMA_LLM_MODEL"], 
+        base_url=config["OLLAMA_BASE_URL"], 
+        request_timeout=config["OLLAMA_TIMEOUT"]
+    )
+    Settings.embed_model = OllamaEmbedding(
+        model_name=config["OLLAMA_EMBEDDING_MODEL"], 
+        base_url=config["OLLAMA_BASE_URL"]
+    )
+
+    # Initialize Qdrant Client globally
+    qdrant_client = QdrantClient(
+        host=config["QDRANT_HOST"], 
+        port=config["QDRANT_PORT"]
+    )
+
+    COLLECTION_NAME = config["COLLECTION_NAME"]
+
 except Exception as e:
-    print(f"FATAL: Failed to load config.yaml: {e}. Cannot proceed.")
+    # If config loading or initialization fails, terminate the script gracefully.
+    print(f"FATAL: Application initialization failed due to configuration error: {e}")
+    print("Please ensure 'config.yaml' exists and is correctly formatted, and that 'load_config' is functional in 'ingest.py'.")
     sys.exit(1)
-    
-# Apply LlamaIndex Settings
-Settings.llm = Ollama(
-    model=config["OLLAMA_LLM_MODEL"], 
-    base_url=config["OLLAMA_BASE_URL"], 
-    request_timeout=config["OLLAMA_TIMEOUT"]
-)
-Settings.embed_model = OllamaEmbedding(
-    model_name=config["OLLAMA_EMBEDDING_MODEL"], 
-    base_url=config["OLLAMA_BASE_URL"]
-)
 
-# Initialize Qdrant Client globally
-qdrant_client = QdrantClient(
-    host=config["QDRANT_HOST"], 
-    port=config["QDRANT_PORT"]
-)
-
-COLLECTION_NAME = config["COLLECTION_NAME"]
 
 # --- Data Models for API ---
 class QueryRequest(BaseModel):
@@ -137,87 +133,6 @@ app.add_middleware(
 # Global list kept for health check status reporting
 vector_store: List[Any] = []
 
-# --- HTML Dashboard Utility ---
-
-def get_dashboard_html(qdrant_status: str, llm_model: str, embed_model: str, vector_size: int) -> str:
-    """Generates the HTML content for the interactive RAG dashboard."""
-    html_content = f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Ollama Qdrant RAG Dashboard</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <style>
-            body {{ font-family: 'Inter', sans-serif; }}
-        </style>
-    </head>
-    <body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
-        <div class="bg-white p-8 rounded-xl shadow-2xl max-w-lg w-full">
-            <h1 class="text-3xl font-extrabold text-indigo-700 mb-6 border-b pb-2">RAG API Status</h1>
-            
-            <div class="space-y-3 mb-8">
-                <p class="text-gray-700 font-semibold">Service Status: <span class="font-bold text-green-600">ONLINE</span></p>
-                <p class="text-gray-700 font-semibold">Qdrant Store: <span class="font-bold text-blue-600">{qdrant_status}</span></p>
-                <p class="text-gray-700">Vector Count: <span id="vector-count" class="font-mono text-sm bg-gray-200 px-2 py-0.5 rounded">{vector_size}</span> points</p>
-                <p class="text-gray-700">LLM Model: <span class="font-mono text-sm bg-gray-200 px-2 py-0.5 rounded">{llm_model}</span></p>
-                <p class="text-gray-700">Embedding Model: <span class="font-mono text-sm bg-gray-200 px-2 py-0.5 rounded">{embed_model}</span></p>
-            </div>
-
-            <button id="ingest-button" 
-                    class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-150 ease-in-out shadow-lg transform hover:scale-[1.01]">
-                🚀 Trigger Document Ingestion (POST /ingest)
-            </button>
-            <p id="ingest-message" class="mt-4 text-center text-sm text-gray-500 hidden"></p>
-
-            <script>
-                document.getElementById('ingest-button').addEventListener('click', async () => {{
-                    const button = document.getElementById('ingest-button');
-                    const message = document.getElementById('ingest-message');
-                    const vectorCountSpan = document.getElementById('vector-count');
-                    const originalText = button.textContent;
-                    
-                    button.disabled = true;
-                    button.textContent = 'Ingesting... Please wait.';
-                    button.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'bg-yellow-500');
-                    button.classList.add('bg-yellow-500');
-                    message.textContent = 'Ingestion in progress. Check server logs for details.';
-                    message.classList.remove('hidden', 'text-green-600', 'text-red-600');
-                    message.classList.add('text-yellow-600');
-
-                    try {{
-                        const response = await fetch('/ingest', {{ method: 'POST' }});
-                        const data = await response.json();
-                        
-                        if (response.ok) {{
-                            message.textContent = data.message;
-                            message.classList.remove('text-yellow-600', 'text-red-600');
-                            message.classList.add('text-green-600');
-                            vectorCountSpan.textContent = data.vector_store_size;
-                        }} else {{
-                            message.textContent = 'Error: ' + (data.detail || 'Ingestion failed.');
-                            message.classList.remove('text-yellow-600', 'text-green-600');
-                            message.classList.add('text-red-600');
-                        }}
-                    }} catch (error) {{
-                        message.textContent = 'Network Error: Could not reach the API.';
-                        message.classList.remove('text-yellow-600', 'text-green-600');
-                        message.classList.add('text-red-600');
-                    }} finally {{
-                        button.disabled = false;
-                        button.textContent = originalText;
-                        button.classList.remove('bg-yellow-500');
-                        button.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
-                    }}
-                }});
-            </script>
-        </div>
-    </body>
-    </html>
-    """
-    return html_content
-
 
 @app.on_event("startup")
 async def check_qdrant_collection():
@@ -264,12 +179,15 @@ async def check_qdrant_collection():
 
 # --- API Endpoints ---
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=FileResponse)
 async def root():
-    """Serves the interactive RAG dashboard and status at the root URL."""
-    
-    # 1. Check Qdrant status for HTML report
-    qdrant_status = "OK"
+    """Serves the interactive RAG dashboard (index.html) at the root URL."""
+    return FileResponse("index.html")
+
+@app.get("/status")
+async def get_current_status():
+    """API endpoint to provide current system status for the dashboard."""
+    qdrant_status = "UNAVAILABLE (Check Qdrant Host)"
     vector_size = 0
     
     try:
@@ -280,16 +198,15 @@ async def root():
         else:
             qdrant_status = "READY"
     except Exception:
-        qdrant_status = "UNAVAILABLE (Check Qdrant Host)"
+        # Exception already sets qdrant_status to UNAVAILABLE
+        pass
 
-    # 2. Generate and return HTML
-    html_content = get_dashboard_html(
-        qdrant_status=qdrant_status,
-        llm_model=config['OLLAMA_LLM_MODEL'],
-        embed_model=config['OLLAMA_EMBEDDING_MODEL'],
-        vector_size=vector_size
-    )
-    return HTMLResponse(content=html_content, status_code=200)
+    return {
+        "qdrant_status": qdrant_status,
+        "vector_size": vector_size,
+        "llm_model": config['OLLAMA_LLM_MODEL'],
+        "embed_model": config['OLLAMA_EMBEDDING_MODEL']
+    }
 
 
 @app.get("/healthcheck")

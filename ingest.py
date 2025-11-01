@@ -19,20 +19,23 @@ from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.core.node_parser import SentenceSplitter 
 from typing import Dict, Any
 
+# --- Module-level Constant for Config File ---
+CONFIG_FILE_NAME = "config.yaml"
+
 # --- 1. CONFIGURATION LOADING ---
 def load_config() -> Dict[str, Any]:
     """Loads configuration from config.yaml."""
     try:
-        # We load config from the path where it is currently stored/referenced
-        with open(config["CONFIG_FILE_NAME"], 'r') as f:
+        # FIX: Directly use the constant CONFIG_FILE_NAME instead of reading from an uninitialized 'config' variable
+        with open(CONFIG_FILE_NAME, 'r') as f: 
             config = yaml.safe_load(f)
         print("INFO: Configuration loaded successfully.")
         return config
     except FileNotFoundError:
-        print("FATAL: config.yaml not found. Cannot proceed.")
+        print(f"FATAL: {CONFIG_FILE_NAME} not found. Cannot proceed.")
         sys.exit(1)
     except Exception as e:
-        print(f"FATAL: Error loading config.yaml: {e}")
+        print(f"FATAL: Error loading {CONFIG_FILE_NAME}: {e}")
         sys.exit(1)
 
 # --- 2. INITIALIZE CLIENTS & SETTINGS ---
@@ -149,8 +152,7 @@ def get_or_build_index(config: Dict[str, Any], vector_store: QdrantVectorStore) 
         print(f"\n--- 4. Building Index ---")
         print("LlamaIndex metadata storage not found. Building index...")
         storage_context = StorageContext.from_defaults(vector_store=vector_store)
-        index = build_simple_index(storage_context, config)
-         
+        index = build_simple_index(storage_context, config)     
     return index
 
 

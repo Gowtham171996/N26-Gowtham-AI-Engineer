@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ollama Qdrant RAG Dashboard</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom font import and utility classes */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117; /* Dark background */
+        }
+        .status-pill {
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-weight: 600;
+            font-size: 0.875rem;
+            display: inline-flex;
+            align-items: center;
+        }
+        .pulse-dot {
+            width: 0.5rem;
+            height: 0.5rem;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+            animation: pulse-animation 1.5s infinite;
+        }
+        @keyframes pulse-animation {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+
+    <!-- Dashboard Container -->
+    <div class="w-full max-w-4xl bg-gray-800 p-8 rounded-xl shadow-2xl border border-gray-700">
+        <h1 class="text-3xl font-bold text-white mb-6 border-b border-gray-700 pb-4">
+            RAG Service Health & Ingestion
+        </h1>
+        
+        <!-- Status Grid -->
+        <div id="status-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            
+            <!-- Overall Status -->
+            <div class="bg-gray-700 p-4 rounded-lg shadow-md">
+                <p class="text-sm text-gray-400 font-medium">Service Status</p>
+                <div id="status-overall" class="status-pill bg-yellow-900 text-yellow-300 mt-2">
+                    <span class="pulse-dot bg-yellow-300"></span>Loading...
+                </div>
+            </div>
+
+            <!-- Qdrant Status -->
+            <div class="bg-gray-700 p-4 rounded-lg shadow-md">
+                <p class="text-sm text-gray-400 font-medium">Qdrant Store</p>
+                <div id="status-qdrant" class="status-pill bg-gray-600 text-gray-300 mt-2">
+                    N/A
+                </div>
+            </div>
+
+            <!-- Vector Count -->
+            <div class="bg-gray-700 p-4 rounded-lg shadow-md">
+                <p class="text-sm text-gray-400 font-medium">Vector Count</p>
+                <div id="status-vector-count" class="text-2xl font-extrabold text-green-400 mt-2">
+                    0
+                </div>
+            </div>
+
+            <!-- LLM Model -->
+            <div class="bg-gray-700 p-4 rounded-lg shadow-md col-span-1 md:col-span-2 lg:col-span-1">
+                <p class="text-sm text-gray-400 font-medium">LLM Model</p>
+                <code id="status-llm-model" class="block bg-gray-900 text-purple-400 p-1 rounded text-xs mt-2">
+                    Loading...
+                </code>
+            </div>
+
+            <!-- Embedding Model -->
+             <div class="bg-gray-700 p-4 rounded-lg shadow-md">
+                <p class="text-sm text-gray-400 font-medium">Embedding Model</p>
+                <code id="status-embed-model" class="block bg-gray-900 text-blue-400 p-1 rounded text-xs mt-2">
+                    Loading...
+                </code>
+            </div>
+
+        </div>
+
+        <!-- Ingestion Control -->
+        <div class="bg-gray-700 p-6 rounded-xl shadow-inner border border-gray-600">
+            <h2 class="text-xl font-semibold text-white mb-4">Data Ingestion</h2>
+            <button id="ingest-button" 
+                    class="w-full sm:w-auto px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg transition duration-150 ease-in-out disabled:bg-gray-500 disabled:cursor-not-allowed"
+                    onclick="triggerIngestion()">
+                Trigger Full Ingestion
+            </button>
+            <p id="ingestion-message" class="mt-4 text-sm text-gray-300 h-6"></p>
+        </div>
+
+    </div>
+
+    <script>
+        // FIX: Explicitly set the port to 8000, as the FastAPI backend is running there.
+        // window.location.origin often omits the port, causing a 404 error.
+        const API_BASE_URL = window.location.protocol + '//' + window.location.hostname + ':8000';
+        
+        const statusElements = {
+            overall: document.getElementById('status-overall'),
+            qdrant: document.getElementById('status-qdrant'),
+            vectorCount: document.getElementById('status-vector-count'),
+            llmModel: document.getElementById('status-llm-model'),
+            embedModel: document.getElementById('status-embed-model'),
+            ingestButton: document.getElementById('ingest-button'),
+            ingestionMessage: document.getElementById('ingestion-message')
+        };
+        
+        // --- Utility Function to set pill style ---
+        function setPillStatus(element, status) {
+            element.className = 'status-pill mt-2';
+            element.innerHTML = '';
+            
+            let colorClass, dotColorClass;
+
+            // NEW LOGIC: Green for success (ONLINE/READY)
+            if (status === "READY" || status === "ONLINE") {
+                colorClass = 'bg-green-900 text-green-300';
+                dotColorClass = 'bg-green-300';
+            } 
+            // BLUE LOGIC: For temporary, known activity (Ingestion/Busy)
+            else if (status === "BUSY" || status === "Processing...") {
+                colorClass = 'bg-blue-900 text-blue-300';
+                dotColorClass = 'bg-blue-300';
+            }
+            // RED LOGIC: All other non-positive/error states (Offline, Empty, Unavailable, API Error)
+            else { 
+                 colorClass = 'bg-red-900 text-red-300';
+                 dotColorClass = 'bg-red-300';
+            }
+
+            element.classList.add(...colorClass.split(' '));
+            element.innerHTML = `<span class="pulse-dot ${dotColorClass}"></span>${status}`;
+        }
+
+
+        // --- Fetch Status Function ---
+        async function fetchStatus() {
+            try {
+                // Now uses the explicit port 8000
+                const response = await fetch(`${API_BASE_URL}/status`); 
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                // 1. Overall Status
+                setPillStatus(statusElements.overall, "ONLINE");
+
+                // 2. Qdrant Status
+                setPillStatus(statusElements.qdrant, data.qdrant_status);
+
+                // 3. Vector Count
+                statusElements.vectorCount.textContent = data.vector_size.toLocaleString();
+                
+                // 4. Model Info
+                statusElements.llmModel.textContent = data.llm_model;
+                statusElements.embedModel.textContent = data.embed_model;
+
+
+            } catch (error) {
+                console.error("Error fetching status:", error);
+                // Update overall status to show the connection problem
+                setPillStatus(statusElements.overall, "OFFLINE");
+                setPillStatus(statusElements.qdrant, 'API Error');
+                statusElements.vectorCount.textContent = 'Error';
+                statusElements.llmModel.textContent = 'Unknown';
+                statusElements.embedModel.textContent = 'Unknown';
+            }
+        }
+        
+        // --- Ingestion Function ---
+        async function triggerIngestion() {
+            const button = statusElements.ingestButton;
+            const originalText = button.textContent;
+            
+            button.disabled = true;
+            button.textContent = "Ingesting... Please wait (this may take a minute)";
+            statusElements.ingestionMessage.textContent = "Starting ingestion process. Do not refresh.";
+            
+            // Revert status pills to 'Loading' temporarily
+            setPillStatus(statusElements.qdrant, "Processing...");
+            setPillStatus(statusElements.overall, "BUSY");
+            
+            try {
+                // Now uses the explicit port 8000
+                const response = await fetch(`${API_BASE_URL}/ingest`, { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const result = await response.json();
+
+                if (response.ok) {
+                    statusElements.ingestionMessage.textContent = result.message;
+                    // Immediately fetch status to update vector count
+                    await fetchStatus(); 
+                } else {
+                    statusElements.ingestionMessage.textContent = `Error: ${result.detail || "Failed to start ingestion."}`;
+                }
+
+            } catch (error) {
+                console.error("Ingestion failed:", error);
+                statusElements.ingestionMessage.textContent = `FATAL ERROR: Could not connect to API for ingestion.`;
+            } finally {
+                button.disabled = false;
+                button.textContent = originalText;
+                // Fetch status one last time for final state
+                fetchStatus();
+            }
+        }
+
+
+        // --- Initial Load and Polling ---
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchStatus(); // Fetch status immediately on load
+            // Poll for status updates every 5 seconds
+            setInterval(fetchStatus, 5000); 
+        });
+
+    </script>
+
+</body>
+</html>
