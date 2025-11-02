@@ -3,56 +3,27 @@ import time
 import os
 import sys
 import shutil
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse 
+from fastapi.responses import FileResponse 
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 # --- Import Ingestion Logic & Config Loader ---
-from ingest import ingest_documents, load_config
+from app.ingest import ingest_documents
+from app.rag import generate_ollama_response, get_embedding, qdrant_client, RERANKER_MODEL, RAG_PROMPT_TEMPLATE, retrieve_chunks, COLLECTION_NAME
+from app.config import RAGSystemInitializer
+rAGSystemInitializer = RAGSystemInitializer()
 
 # --- Qdrant Integration ---
-from qdrant_client import QdrantClient
 from qdrant_client.http.models import CollectionInfo
 from qdrant_client.http.exceptions import UnexpectedResponse # Added for explicit error handling
 
-# --- LlamaIndex/Ollama Configuration ---
-from llama_index.core import Settings
-from llama_index.llms.ollama import Ollama
-from llama_index.embeddings.ollama import OllamaEmbedding
+# --- Global State & Configuration Setup  ---
 
-# --- Global State & Configuration Setup (STRICTLY FROM CONFIG) ---
-
-try:
-    # Load configuration from config.yaml (SINGLE SOURCE OF TRUTH)
-    config = load_config()
-    print("INFO: Configuration loaded successfully from config.yaml.")
-        
-    # Apply LlamaIndex Settings
-    Settings.llm = Ollama(
-        model=config["OLLAMA_LLM_MODEL"], 
-        base_url=config["OLLAMA_BASE_URL"], 
-        request_timeout=config["OLLAMA_TIMEOUT"]
-    )
-    Settings.embed_model = OllamaEmbedding(
-        model_name=config["OLLAMA_EMBEDDING_MODEL"], 
-        base_url=config["OLLAMA_BASE_URL"]
-    )
-
-    # Initialize Qdrant Client globally
-    qdrant_client = QdrantClient(
-        host=config["QDRANT_HOST"], 
-        port=config["QDRANT_PORT"]
-    )
-
-    COLLECTION_NAME = config["COLLECTION_NAME"]
-
-except Exception as e:
-    # If config loading or initialization fails, terminate the script gracefully.
-    print(f"FATAL: Application initialization failed due to configuration error: {e}")
-    print("Please ensure 'config.yaml' exists and is correctly formatted, and that 'load_config' is functional in 'ingest.py'.")
-    sys.exit(1)
+    # Load configuration from config.yaml 
+config = rAGSystemInitializer.config
+print("INFO: Configuration loaded successfully from config.yaml.")
 
 
 # --- Data Models for API ---
@@ -62,69 +33,6 @@ class QueryRequest(BaseModel):
 class RAGResponse(BaseModel):
     answer: str
     sources: List[Dict[str, str]]
-
-# --- Utility Functions (Embedding for Query) ---
-
-def get_embedding(text: str) -> List[float]:
-    """Generates the embedding for the given query text using the configured Ollama model."""
-    try:
-        # Relies on global Settings.embed_model initialized above
-        return Settings.embed_model.get_text_embedding(text)
-    except Exception as e:
-        print(f"ERROR: Failed to get embedding for text: {e}")
-        raise HTTPException(status_code=500, detail="Embedding generation failed. Check Ollama server.")
-
-# --- Retrieval Utilities (Queries Qdrant) ---
-
-def retrieve_chunks(query_vector: List[float]) -> List[Dict[str, Any]]:
-    """Retrieves the top K most relevant chunks by querying Qdrant."""
-    
-    try:
-        search_result = qdrant_client.search(
-            collection_name=COLLECTION_NAME,
-            query_vector=query_vector,
-            limit=config['TOP_K_CHUNKS'],
-            with_payload=True,
-        )
-    except Exception as e:
-        print(f"FATAL: Qdrant search failed: {e}")
-        raise ValueError(f"Could could not perform search on Qdrant. Is the collection '{COLLECTION_NAME}' created?")
-
-
-    retrieved_chunks = []
-    
-    for i, hit in enumerate(search_result):
-        # Debugging: Log the keys of the payload for the first hit
-        if i == 0:
-            print(f"DEBUG: Keys found in first retrieved payload: {list(hit.payload.keys())}")
-            
-        try:
-            chunk = {
-                "score": hit.score,
-                "text": hit.payload['_node_content'],  # CORRECTED: Use LlamaIndex node content key
-                "source": hit.payload['file_name'] # CORRECTED: Use a reliable file name key for attribution
-            }
-            retrieved_chunks.append(chunk)
-        except KeyError as e:
-            # Raise a specific error indicating payload structure issue
-            print(f"FATAL: Missing key {e} in Qdrant payload! Actual keys: {list(hit.payload.keys())}")
-            raise KeyError(f"Missing expected key '{e}' in Qdrant payload. Keys found: {list(hit.payload.keys())}. Please check that your ingestion process is using '_node_content' for text and 'file_name' for source.")
-    
-    return retrieved_chunks
-
-
-def generate_ollama_response(rag_prompt: str) -> str:
-    """
-    Generates the final answer using the globally configured Ollama LLM via LlamaIndex binding.
-    """
-    print(f"INFO: Calling Ollama LLM for generation with prompt length {len(rag_prompt)}")
-    
-    try:
-        response = Settings.llm.complete(rag_prompt)
-        return response.text
-    except Exception as e:
-        print(f"ERROR: Ollama LLM generation failed: {e}")
-        return "The LLM service is currently unavailable or returned an error."
 
 
 # --- FastAPI Application Setup ---
@@ -310,7 +218,6 @@ async def trigger_ingestion():
         print(f"FATAL INGESTION ERROR: {e}")
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {e}")
 
-
 @app.delete("/ingest/delete")
 async def delete_ingestion_data():
     """
@@ -363,7 +270,7 @@ async def delete_ingestion_data():
     }
 
 
-@app.post("/query", response_model=RAGResponse)
+@app.post("/query/rag", response_model=RAGResponse)
 async def handle_rag_query(request: QueryRequest):
     """The main RAG endpoint."""
     # Check for collection health based on successful check in startup
@@ -386,21 +293,44 @@ async def handle_rag_query(request: QueryRequest):
         retrieved_chunks = retrieve_chunks(query_vector)
         print(f"INFO: Retrieved {len(retrieved_chunks)} relevant chunks from Qdrant.")
 
-        # 3. Prompt Construction
+         # 3. Rerank the Retrieved Chunks using LLM
+        if RERANKER_MODEL and len(retrieved_chunks) > 0:
+            print(f"INFO: Starting fast cross-encoder reranking for {len(retrieved_chunks)} chunks.")
+            
+            # Prepare data for the Cross-Encoder: list of [query, chunk_text] pairs
+            query_chunk_pairs = [[query, c['text']] for c in retrieved_chunks]
+            
+            # 3. Reranking Step: Get new relevance scores using the cross-encoder
+            # The .predict() call is the core of the reranker algorithm
+            rerank_scores = RERANKER_MODEL.predict(query_chunk_pairs)
+            
+            # Pair the new scores with the original chunks
+            scored_chunks = list(zip(rerank_scores, retrieved_chunks))
+            
+            # Sort the chunks based on the new rerank_score (highest first)
+            scored_chunks.sort(key=lambda x: x[0], reverse=True)
+            
+            # Get the top N chunks after reranking, where N is smaller (e.g., 3-5)
+            # This is crucial for *maximizing LLM recall* by *minimizing context tokens*
+            TOP_N_RERANKED = 5 # A conservative, fast number (you can make this configurable)
+            
+            # Extract the reordered chunks (discarding the temporary score)
+            final_context_chunks = [c[1] for c in scored_chunks[:TOP_N_RERANKED]]
+            
+            print(f"INFO: Reranking complete. Selected Top {len(final_context_chunks)} chunks for context.")
+        
+        # 4. Prompt Construction
         context = "\n---\n".join([c['text'] for c in retrieved_chunks])
-        rag_prompt = (
-            "You are a helpful and accurate assistant. Use the following "
-            "context to answer the user's query. If the context does not "
-            "contain the answer, state that you cannot find the answer in the "
-            "provided documents.\n\n"
-            f"CONTEXT:\n{context}\n\n"
-            f"USER QUERY: {query}"
-        )
+        if not RAG_PROMPT_TEMPLATE:
+             # Should ideally not happen if startup was successful
+             raise RuntimeError("RAG Prompt Template failed to load during startup.")
 
-        # 4. Generation (LLM Call)
+        rag_prompt = RAG_PROMPT_TEMPLATE.format(context=context, query=query)
+
+        # 5. Generation (LLM Call)
         llm_answer = generate_ollama_response(rag_prompt)
 
-        # 5. Format Response
+        # 6. Format Response
         sources_list = [
             {"source": c['source'], "similarity_score": f"{c['score']:.4f}"} 
             for c in retrieved_chunks
@@ -419,6 +349,7 @@ async def handle_rag_query(request: QueryRequest):
         print(f"FATAL RAG ERROR: {e}")
         # Return the specific error message to the client for better debugging
         raise HTTPException(status_code=500, detail=f"Internal server error during RAG process: {e}")
+
 
 
 # --- Run the application ---

@@ -6,11 +6,16 @@ OLLAMA_WORKERS: 8
 
 QDRANT_HOST: "localhost"
 QDRANT_PORT: 6333
-COLLECTION_NAME: "ai_knowledge_base_recursive"
+QDRANT_URL: "http://localhost:6333"
+QDRANT_API_KEY: ""
+QDRANT_TIMEOUT: 120.0
+QDRANT_COLLECTION_NAME: "ai_knowledge_base"
+
+RERANKER_MODEL: "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 CONFIG_FILE_NAME: "config.yaml"
 VECTOR_STORE_PATH: "vector_store.json"
-SYSTEM_PROMPT_FILE: "systemprompt.txt"
+RAG_PROMPT_TEMPLATE: "system_prompt.txt"
 DATA_DIR: "data"
 PERSIST_DIR : "qdrant_storage"
 

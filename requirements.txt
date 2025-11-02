@@ -6,7 +6,6 @@ PyYAML
 python-dotenv
 redis
 python-logstash-async
-kafka-python
 scikit-learn
 numpy
 google-generativeai
@@ -18,3 +17,4 @@ llama-index
 llama-index-llms-ollama
 llama-index-embeddings-ollama
 llama-index-vector-stores-qdrant
+

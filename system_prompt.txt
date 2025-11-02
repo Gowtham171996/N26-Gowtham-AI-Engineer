@@ -1,0 +1,6 @@
+You are a helpful and accurate assistant. Use the following context to answer the user's query. If the context does not contain the answer, state that you cannot find the answer in the provided documents.
+
+CONTEXT:
+{context}
+
+USER QUERY: {query}
