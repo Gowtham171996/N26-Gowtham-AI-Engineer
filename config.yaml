@@ -1,18 +1,22 @@
+## ---- Models -----
 LLM_MODEL: "gemini-2.5-flash"
 EMBEDDING_MODEL: "text-embedding-004" # Recommended for RAG tasks
+RERANKER_MODEL: "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
-#OLLAMA_BASE_URL: "http://ollama:11434"
-#OLLAMA_BASE_URL: "http://localhost:11434"
+## ---- Configurations -----
 LLM_TIMEOUT: 120.0
 LLM_WORKERS: 8
+LLM_TEMPERATURE: 0.1
+CHUNK_SIZE: 512
+CHUNK_OVERLAP: 48
+TOP_K_CHUNKS: 5   #No of chunks qdrant should retrieve
+TOP_N_RERANKED: 3 #No of chunks reranker should send to LLM
 
 # --- Qdrant Configuration ---
-
 #QDRANT_HOST: "qdrant"
 QDRANT_HOST: "localhost"
 QDRANT_PORT: 6333
 QDRANT_URL: "http://qdrant:6333"
-QDRANT_API_KEY: ""
 QDRANT_TIMEOUT: 120.0
 QDRANT_COLLECTION_NAME: "ai_knowledge_base"
 
@@ -20,17 +24,11 @@ QDRANT_COLLECTION_NAME: "ai_knowledge_base"
 HEALTH_FILE: "index_health.json"
 COHERENCE_QUERY: "What is Responsible regulatory authority?"
 SAMPLE_SIZE: 100 # Number of vectors to sample from Qdrant for health check
-
-RERANKER_MODEL: "cross-encoder/ms-marco-MiniLM-L-6-v2"
-
 CONFIG_FILE_NAME: "config.yaml"
 VECTOR_STORE_PATH: "vector_store.json"
 RAG_PROMPT_TEMPLATE: "system_prompt.txt"
+
+##------- Mount Directory ---
 DATA_DIR: "data"
 PERSIST_DIR : "qdrant_storage"
 
-CHUNK_SIZE: 512
-CHUNK_OVERLAP: 48
-
-TOP_K_CHUNKS: 5   #No of chunks qdrant should retrieve
-TOP_N_RERANKED: 3 #No of chunks reranker should send to LLM

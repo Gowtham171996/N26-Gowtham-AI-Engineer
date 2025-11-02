@@ -1,6 +1,6 @@
-from typing import Dict, Any
 import yaml
 import sys
+from typing import Dict, Any
 
 # --- LlamaIndex/Ollama Configuration ---
 from llama_index.core import Settings
@@ -58,7 +58,7 @@ class RAGSystemInitializer:
         # Set Settings
         Settings.llm = Gemini(
             model=  self.config["LLM_MODEL"] ,
-            temperature=0.1, # Example: setting a low temperature for factual RAG   
+            temperature= self.config["LLM_TEMPERATURE"], # Example: setting a low temperature for factual RAG   
         )
 
         Settings.embed_model = GeminiEmbedding(

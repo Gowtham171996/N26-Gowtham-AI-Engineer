@@ -12,4 +12,4 @@ pytest
 sentence_transformers
 llama-index
 llama-index-vector-stores-qdrant
-llama-index-google-genai
+

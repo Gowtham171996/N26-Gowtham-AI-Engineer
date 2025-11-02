@@ -1,20 +1,17 @@
 import uvicorn
-import time
 import os
 import sys
 import shutil
-from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse 
 from fastapi.concurrency import asynccontextmanager
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 
 # NEW: Import Gemini LLM and the base LLM type for direct generation calls
 # NOTE: Ensure 'llama-index-google-genai' is installed
-from llama_index.llms.gemini import Gemini
 from llama_index.core.llms import LLM
 
 # Module level imports
@@ -340,7 +337,6 @@ async def rag_query(request: QueryRequest):
 
 
         # 5. Generation (LLM Call - using the new Gemini function)
-        # This replaces generate_ollama_response
         llm_answer = generate_gemini_response(rag_prompt)
 
         # 6. Format Response (Sources feature preserved)

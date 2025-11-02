@@ -251,37 +251,13 @@ def ingest_documents():
     # 1. Load Configuration and Clients
     config = rAGSystemInitializer.config
     vector_store = rAGSystemInitializer.vector_store
-    
-    # --- MODEL CONFIGURATION FIX (Updated Gemini Setup) ---
-    print("\n--- Configuring Gemini Models ---")
-    
-    # 1. Configure Embedding Model: Gemini Embedding (text-embedding-004 is current alias)
-    gemini_embed_model = GeminiEmbedding(
-        model_name= config["EMBEDDING_MODEL"]
-    )
-
-    Settings.embed_model = gemini_embed_model
-    print(f"Embedding Model set to: {Settings.embed_model.model_name}")
-    
-    # 2. Configure LLM: Gemini 2.5 Flash
-    # FIX: Changing from 'gemini-1.5-flash' to 'gemini-2.5-flash' to resolve the 404 error, 
-    # as 2.5 Flash is the latest stable and universally available alias.
-    gemini_llm = Gemini(
-        model=  config["LLM_MODEL"] ,#"gemini-2.5-flash",
-        temperature=0.1 # Example: setting a low temperature for factual RAG
-    )
-    Settings.llm = gemini_llm
-    print(f"LLM set to: {Settings.llm.model}")
-    # --- END MODEL CONFIGURATION FIX ---
-    
-    # Use the embed_model from LlamaIndex Settings (which we just set)
-    embed_model = Settings.embed_model 
-
+    Settings = rAGSystemInitializer.Settings
+        
     # 2. Conditional Index Building/Loading (performs the incremental update)
-    index = build_or_update_index(config, vector_store, embed_model)
+    index = build_or_update_index(config, vector_store, Settings.embed_model)
     
     # 3. Calculate and persist the health score
-    _calculate_and_persist_health_score(config, vector_store, embed_model)
+    _calculate_and_persist_health_score(config, vector_store, Settings.embed_model)
     
     print("\nSUCCESS: Indexing pipeline execution complete.")
 
