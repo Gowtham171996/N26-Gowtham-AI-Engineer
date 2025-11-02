@@ -9,3 +9,4 @@ __*
 ollama
 .gitignore
 .vscode
+*.docx

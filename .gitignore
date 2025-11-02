@@ -7,3 +7,8 @@ __*
 .pytest_cache
 .env
 ollama
+*.docx
+Readme.md
+N26 RAG Presentation.pdf
+Readme.pdf
+~WRL0005.tmp
