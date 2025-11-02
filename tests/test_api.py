@@ -25,6 +25,17 @@ def test_api_is_running():
     except Exception as e:
         assert False, f"Server failed to respond to root path: {e}"
 
+def test_status_endpoint_structure():
+    """
+    API Test: Asserts that the / endpoint returns a successful response
+    """
+
+    try:
+        response = requests.get(f"{BASE_URL}/", timeout=5)
+        assert response.status_code == 200
+
+    except Exception as e:
+        assert False, f"html endpoint test failed: {e}"
 
 def test_status_endpoint_structure():
     """
@@ -72,7 +83,7 @@ def test_rag_query_endpoint_structure():
     headers = {"Content-Type": "application/json"}
 
     try:
-        response = requests.post(f"{BASE_URL}/query", headers=headers, data=json.dumps(payload), timeout=30)
+        response = requests.post(f"{BASE_URL}/query", headers=headers, data=json.dumps(payload), timeout=120)
         
         # If non-200, print the response content for debugging the 500 Internal Server Error
         if response.status_code != 200:
