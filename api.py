@@ -186,9 +186,10 @@ async def get_current_status(request: Request):
         "embed_model": config['OLLAMA_EMBEDDING_MODEL'],
         "health_score": 
         {
-            "score": request.app.state.health_score.score,
-            "timestamp":request.app.state.health_score.timestamp
-
+            "score": request.app.state.health_score["score"],
+            "timestamp": request.app.state.health_score["timestamp"],
+            "sample_size": request.app.state.health_score["sample_size"],
+            "query": request.app.state.health_score["query"]
         }
     }
 
@@ -293,8 +294,6 @@ async def delete_ingestion_data(request: Request):
     else:
         local_data_deleted = True
         print(f"INFO: Local directory '{persistentPath}' not found, treating as deleted.")
-    
-    app.state.health_score = 0
 
     return {
         "message": f"Data deletion successful. Qdrant collection: {'Deleted' if qdrant_deleted else 'Failed'}, Local Index: {'Deleted' if local_data_deleted else 'Failed'}.",

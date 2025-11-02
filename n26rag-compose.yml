@@ -1,0 +1,92 @@
+version: '3.8'
+
+# This file orchestrates the FastAPI application, Qdrant vector database,
+# and Ollama LLM server for a local RAG development environment.
+
+services:
+  # --- 1. FastAPI Application Service (The API Layer) ---
+  api:
+    image: gowthambc/n26rag:v1.0
+    # Expose FastAPI on the host machine's port 8000
+    ports:
+      - "8000:8000"
+    working_dir: /usr/src/app # Set a new working directory for the project root
+    command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    # Essential environment variables for the FastAPI app to connect to other services
+    environment:
+      # Use the Docker service names for inter-container communication
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      # FIX: Ensure the application uses the Docker service name 'qdrant' instead of 'localhost'
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_HOST: http://ollama:11434
+    # Ensure Qdrant and Ollama are ready before starting the API
+    depends_on:
+      - qdrant
+      - ollama
+    # Use a restart policy suitable for development
+    restart: unless-stopped
+    # FIX: Mount the entire project root directory ('.') to the container's working directory (/usr/src/app)
+    # This allows both 'api.py' and the 'app/' subdirectory to be found by Python.
+    volumes:
+      - .:/usr/src/app
+      - .\data:/usr/src/data
+    networks:
+      - rag-network
+
+  # --- 2. Qdrant Vector Database Service ---
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    # Expose the Qdrant API (6333) and the web UI (6333)
+    ports:
+      - "6333:6333"
+    # Persist the vector data on a named volume
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+  # --- 3. Ollama LLM Service (The Model/Embedding Provider) ---
+  ollama:
+    # This image provides the LLM/Embedding endpoints
+    image: ollama/ollama:latest
+    container_name: ollama
+    # Expose the Ollama API on the host machine's port 11434
+    ports:
+      - "11434:11434"
+    # Crucial: This setting makes Ollama's API accessible inside the Docker network.
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+    # UPDATED: Using specific bind mounts and configuration for Ollama
+    volumes:
+      # This maps a local directory for persistent models
+      - ./ollama/ollama:/root/.ollama
+      # This maps your local entrypoint script into the container.
+      - ./entrypoint.sh:/entrypoint.sh
+    # Allocate a pseudo-TTY, often useful for entrypoint script execution
+    tty: true
+    # Ensures the service always attempts to restart
+    restart: always
+    # Execute the custom entrypoint script
+    entrypoint: ["/usr/bin/bash", "/entrypoint.sh"]
+    # Optional: Uncomment the following section to enable GPU access if you have a CUDA-supported GPU.
+    deploy:
+       resources:
+         reservations:
+           devices:
+             - driver: nvidia
+               count: all
+               capabilities: [gpu]
+    networks:
+      - rag-network
+
+# --- Docker Volumes for Persistent Storage ---
+volumes:
+  qdrant_data: # Retained for Qdrant storage
+
+# --- Docker Network (Ensures all services can communicate by name) ---
+networks:
+  rag-network:
+    driver: bridge

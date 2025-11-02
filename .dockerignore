@@ -1,0 +1,11 @@
+old/
+.vscode/
+qdrant_storage/
+localrag.py
+localrag2.py
+__*
+.pytest_cache
+.env
+ollama
+.gitignore
+.vscode

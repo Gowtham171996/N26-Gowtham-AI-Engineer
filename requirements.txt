@@ -3,16 +3,13 @@ uvicorn
 pydantic
 qdrant-client
 PyYAML
-python-dotenv
-redis
-python-logstash-async
 scikit-learn
 numpy
 google-generativeai
 google-genai
-python-logstash
 requests
 pytest
+sentence_transformers
 llama-index
 llama-index-llms-ollama
 llama-index-embeddings-ollama
