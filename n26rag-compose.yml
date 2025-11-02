@@ -1,8 +1,6 @@
-version: '3.8'
 
 # This file orchestrates the FastAPI application, Qdrant vector database,
 # and Ollama LLM server for a local RAG development environment.
-
 services:
   # --- 1. FastAPI Application Service (The API Layer) ---
   api:
@@ -71,13 +69,13 @@ services:
     # Execute the custom entrypoint script
     entrypoint: ["/usr/bin/bash", "/entrypoint.sh"]
     # Optional: Uncomment the following section to enable GPU access if you have a CUDA-supported GPU.
-    deploy:
-       resources:
-         reservations:
-           devices:
-             - driver: nvidia
-               count: all
-               capabilities: [gpu]
+    #deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
     networks:
       - rag-network
 

@@ -3,6 +3,8 @@ name: RAG Backend CI/CD Pipeline
 on:
   push:
     branches: [ main, master, develop ]
+    tags: 
+      - 'v*' # Trigger build/push when a version tag (e.g., v1.0.0) is pushed
   pull_request:
     branches: [ main, master, develop ]
   workflow_dispatch: # Allows manual trigger for testing
@@ -12,27 +14,26 @@ env:
   DOCKER_IMAGE_NAME: gowthambc/n26rag
 
 jobs:
-  # 1. Code Linting Stage (Python Static Analysis) - Linting temporarily disabled
+  # 1. Code Linting Stage (Python Static Analysis)
   lint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.11 with Caching
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          # Removed cache: 'pip' to prevent 'pip cache dir' failure with act
-          # cache: 'pip' 
+          # IMPROVEMENT 1: Enable dependency caching for faster setup
+          cache: 'pip' 
 
       - name: Install dependencies and linters
         run: |
-          # Use a minimal install for linting efficiency if possible
           pip install -r requirements.txt
           pip install flake8
 
-      # - name: Run Flake8 Linting # TEMPORARILY DISABLED AS REQUESTED
+      # - name: Run Flake8 Linting # TEMPORARILY DISABLED AS REQUESTED (Uncomment when ready)
       #   run: |
       #     echo "Running flake8 linting..."
       #     flake8 . --max-line-length=120 --exclude=venv,dist,.git,.github,docs,tests
@@ -45,65 +46,69 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      # --- Docker Compose Setup and Startup ---
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      # Build the application image locally so Docker Compose can reference it
+      - name: Build Application Image Locally
+        run: |
+          # Use the environment variable for the image name and tag it with 'latest'
+          DOCKER_IMAGE_TAG=${{ env.DOCKER_IMAGE_NAME }}:latest
+          echo "Building image $DOCKER_IMAGE_TAG locally..."
+          docker build --tag $DOCKER_IMAGE_TAG .
+
+      # Start the full RAG stack using Docker Compose and wait for all services to be healthy
+      - name: Start Full RAG Stack (Docker Compose)
+        run: |
+          # The --wait flag pauses execution until the containers are healthy/ready
+          # Assuming the docker compose file is named 'n26rag-compose.yml'
+          docker compose -f n26rag-compose.yml up -d --wait
+
+      # --- Runner Setup for Pytest Execution ---
+      
+      - name: Set up Python 3.11 with Caching
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          # Removed cache: 'pip' to prevent 'pip cache dir' failure with act
-          # cache: 'pip' 
+          cache: 'pip' 
 
-      - name: Install dependencies and testing tools
+      - name: Install testing tools on runner
         run: |
-          pip install -r requirements.txt
+          # Install pytest and requests on the runner to hit the Dockerized API
           pip install pytest requests
-
-      - name: Start FastAPI Server in Background
-        # FIX: Force inline execution by relying solely on bash -c command in a single line,
-        # and removing the explicit 'shell: bash' which seems to cause the temp file path error in act.
-        run: bash -c "python api.py & echo 'API_PID=$!' >> $GITHUB_ENV"
-        
-      - name: Wait for API Server to be Ready (Robust Polling)
-        run: |
-          # Poll the healthcheck endpoint for up to 30 seconds
-          bash -c 'for i in $(seq 1 30); do 
-            if curl --fail http://localhost:8000/healthcheck 2>/dev/null; then 
-              echo "API is ready after $i seconds."
-              exit 0
-            fi
-            echo "Waiting for API... ($i/30)"
-            sleep 1
-          done
-          echo "API failed to start after 30 seconds"
-          exit 1'
           
+      # --- Test Execution ---
+
       - name: Run Smoke Tests (Health Check & Root Dashboard)
         run: |
           echo "Checking http://localhost:8000/healthcheck endpoint..."
+          # Curl the API container on the exposed port
           curl --fail http://localhost:8000/healthcheck
           
           echo "Checking root endpoint for RAG dashboard content..."
-          # Check for a unique string on the dashboard to ensure the UI is served
           curl -s -f http://localhost:8000/ | grep -q "RAG Service Health & Ingestion"
 
       - name: Run Comprehensive API Tests (Pytest)
         run: |
           echo "Running Comprehensive API Tests (using Pytest)..."
-          # 'tests/test_api.py' is now present and ready to run.
           pytest tests/test_api.py
-
-      - name: Stop FastAPI Server
-        if: always() # Ensure cleanup runs even on test failure
-        # FIX: Force inline execution. Removed shell: bash.
+          
+      # --- Teardown ---
+      
+      # Crucial: Always run the teardown to clean up the runner environment
+      - name: Teardown Docker Compose
+        if: always()
         run: |
-          if [ -n "${{ env.API_PID }}" ]; then
-            kill ${{ env.API_PID }} || true
-          fi
+          docker compose -f n26rag-compose.yml down
 
   # 3. Docker Image Build and Push Stage
   build_and_push_image:
     runs-on: ubuntu-latest
     needs: [api_tests] # Only build/push if all tests pass
-    if: github.event_name == 'push' # Only trigger this job on 'push' events
+    # Only trigger this job on 'push' events or if a tag is pushed
+    if: github.event_name == 'push' || startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -125,14 +130,16 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha
-            type=raw,value=v1.0 # Static tag from your comment, ensure consistency
+            # IMPROVEMENT 3: Auto-tag based on Git tag (e.g., v1.2.3)
+            type=semver,pattern={{version}} 
+            type=raw,value=v1.0 # Static tag for manual consistency
 
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
           context: .
-          # PUSH IS SET TO FALSE AS REQUESTED
-          push: false
+          # PUSH IS SET TO FALSE AS REQUESTED in the original file
+          push: false 
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
