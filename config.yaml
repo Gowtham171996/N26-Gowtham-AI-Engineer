@@ -22,4 +22,5 @@ PERSIST_DIR : "qdrant_storage"
 CHUNK_SIZE: 512
 CHUNK_OVERLAP: 48
 
-TOP_K_CHUNKS: 3
+TOP_K_CHUNKS: 5   #No of chunks qdrant should retrieve
+TOP_N_RERANKED: 3 #No of chunks reranker should send to LLM

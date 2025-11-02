@@ -1,6 +1,5 @@
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
 import yaml
-import os
 import sys
 
 # --- LlamaIndex/Ollama Configuration ---
@@ -11,7 +10,6 @@ from llama_index.vector_stores.qdrant import QdrantVectorStore
 
 # --- Qdrant Integration ---
 from qdrant_client import QdrantClient
-
 
 # --- RAG SYSTEM INITIALIZER CLASS ---
 class RAGSystemInitializer:

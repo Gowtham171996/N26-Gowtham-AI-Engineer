@@ -1,8 +1,9 @@
 from sentence_transformers import CrossEncoder
+
 from app.config import RAGSystemInitializer
 rAGSystemInitializer = RAGSystemInitializer()
 
-def RerankerModel():
+def RerankerModel() -> CrossEncoder:
     try:
         config = rAGSystemInitializer.config
         print("INFO: Reranker: Configuration loaded successfully from config.yaml.")

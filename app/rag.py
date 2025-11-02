@@ -3,29 +3,35 @@ import qdrant_client
 from typing import List, Dict, Any
 from fastapi import HTTPException
 
+# Module level imports
 from app.reranker import RerankerModel
 from app.config import RAGSystemInitializer
-rAGSystemInitializer = RAGSystemInitializer()
 
-# Load configuration from config.yaml 
-config = rAGSystemInitializer.config
-print("INFO: Configuration loaded successfully from config.yaml.")
+try:
+    rAGSystemInitializer = RAGSystemInitializer()
 
-# Load the RAG prompt template after configuration
-RAG_PROMPT_TEMPLATE: str = rAGSystemInitializer.load_rag_prompt_template()
-print("INFO: RAG Prompt template loaded from system_prompt.txt.")
-    
-# Apply LlamaIndex Settings
-Settings = rAGSystemInitializer.Settings
+    # Load configuration from config.yaml 
+    config = rAGSystemInitializer.config
+    print("INFO: Configuration loaded successfully from config.yaml.")
 
-# Initialize Qdrant Client globally
-qdrant_client = rAGSystemInitializer.qdrant_client
-RERANKER_MODEL = RerankerModel()
-COLLECTION_NAME = config["QDRANT_COLLECTION_NAME"]
+    # Load the RAG prompt template after configuration
+    RAG_PROMPT_TEMPLATE: str = rAGSystemInitializer.load_rag_prompt_template()
+    print("INFO: RAG Prompt template loaded from system_prompt.txt.")
+        
+    # Apply LlamaIndex Settings
+    Settings = rAGSystemInitializer.Settings
+
+    # Initialize Qdrant Client globally
+    qdrant_client = rAGSystemInitializer.qdrant_client
+    RERANKER_MODEL = RerankerModel()
+    COLLECTION_NAME = config["QDRANT_COLLECTION_NAME"]
+        
+except Exception as e:
+    print(f"FATAL: Failed to initialize RAGSystemInitializer or load config: {e}")
+    exit(1) # Exit if core configuration cannot be loaded
 
 
 # --- Utility Functions (Embedding for Query) ---
-
 def get_embedding(text: str) -> List[float]:
     """Generates the embedding for the given query text using the configured Ollama model."""
     try:

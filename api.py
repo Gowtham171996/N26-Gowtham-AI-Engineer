@@ -3,27 +3,26 @@ import time
 import os
 import sys
 import shutil
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse 
+from fastapi.concurrency import asynccontextmanager
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
-# --- Import Ingestion Logic & Config Loader ---
+# Module level imports
 from app.ingest import ingest_documents
-from app.rag import generate_ollama_response, get_embedding, qdrant_client, RERANKER_MODEL, RAG_PROMPT_TEMPLATE, retrieve_chunks, COLLECTION_NAME
+from app.rag import generate_ollama_response, get_embedding, retrieve_chunks
 from app.config import RAGSystemInitializer
-rAGSystemInitializer = RAGSystemInitializer()
+from app.reranker import RerankerModel # Assuming this provides a model object or similar utility
 
 # --- Qdrant Integration ---
 from qdrant_client.http.models import CollectionInfo
-from qdrant_client.http.exceptions import UnexpectedResponse # Added for explicit error handling
+from qdrant_client.http.exceptions import UnexpectedResponse 
+from qdrant_client import QdrantClient # Need to import the client class for typing
 
-# --- Global State & Configuration Setup  ---
-
-    # Load configuration from config.yaml 
-config = rAGSystemInitializer.config
-print("INFO: Configuration loaded successfully from config.yaml.")
+# --- LlamaIndex/Ollama Configuration ---
+from llama_index.core import Settings
 
 
 # --- Data Models for API ---
@@ -35,10 +34,89 @@ class RAGResponse(BaseModel):
     sources: List[Dict[str, str]]
 
 
-# --- FastAPI Application Setup ---
+# --- APPLICATION LIFESPAN CONTEXT MANAGER ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Context manager that runs startup and shutdown logic. All initialization 
+    is moved here and stored in app.state.
+    """
+    print("\n--- Running FastAPI Startup Lifespan ---")
+    
+    # Dependencies initialized inside the try block
+    qdrant_client: Optional[QdrantClient] = None
+    initializer: Optional[RAGSystemInitializer] = None
+    
+    try:
+        # 1. Instantiate the Initializer, which loads config and sets LlamaIndex settings
+        initializer = RAGSystemInitializer()
+        
+        # 2. Extract necessary components from the initialized object
+        qdrant_client = initializer.qdrant_client
+        config = initializer.config
+        rag_prompt_template = initializer.load_rag_prompt_template()
+        reranker_model = RerankerModel() 
+
+        # 3. Store initialized components in the app state for dependency injection
+        app.state.config = config
+        app.state.qdrant_client = qdrant_client
+        app.state.rag_prompt_template = rag_prompt_template
+        app.state.reranker_model = reranker_model
+        
+        # 4. Perform Initial Collection Check & Ingestion (logic moved from @app.on_event)
+        COLLECTION_NAME = config["QDRANT_COLLECTION_NAME"]
+        should_ingest = False
+        
+        try:
+            # Check if the collection exists and get its status
+            info: CollectionInfo = qdrant_client.get_collection(collection_name=COLLECTION_NAME)
+            count = info.points_count if info.points_count is not None else 0
+            
+            if count == 0:
+                print(f"WARNING: Qdrant collection '{COLLECTION_NAME}' exists but is EMPTY (0 points). Triggering ingestion.")
+                should_ingest = True
+            else:
+                print(f"SUCCESS: Qdrant collection '{COLLECTION_NAME}' found with {count} points.")
+                
+        except UnexpectedResponse as e:
+            # Catches 404 Not Found error from Qdrant when collection is missing.
+            if "Not found" in str(e):
+                print(f"WARNING: Qdrant collection '{COLLECTION_NAME}' not found. Triggering ingestion.")
+                should_ingest = True
+            else:
+                print(f"WARNING: Qdrant check failed (Unexpected Response: {e}). Trying ingestion.")
+                should_ingest = True 
+
+        except Exception as e:
+            print(f"WARNING: Qdrant connection check failed (connection issue: {e}). Trying ingestion.")
+            should_ingest = True
+                
+        if should_ingest:
+            # Call the imported ingestion function
+            ingest_documents() 
+            print(f"INFO: Initial ingestion finished.")
+
+        print("INFO: All RAG components successfully initialized and stored in app state.")
+        
+    except Exception as e:
+        print(f"CRITICAL STARTUP FAILURE during lifespan: {e}")
+        # Re-raise the exception to prevent the server from starting if initialization failed
+        sys.exit(1)
+
+    # Yield control to the application to handle requests
+    yield
+    
+    # --- Shutdown Logic (runs when the application is shutting down) ---
+    print("\n--- Running FastAPI Shutdown Lifespan ---")
+    # Add any necessary cleanup here (e.g., closing client connections if necessary)
+    print("INFO: Shutdown sequence completed.")
+
+
+# --- Fast API Setup: Pass the lifespan function ---
 app = FastAPI(
     title="Ollama Qdrant RAG API",
-    description="A RAG Backend using Ollama for embeddings/LLM and Qdrant for vector storage."
+    description="A RAG Backend using Ollama for embeddings/LLM and Qdrant for vector storage.",
+    lifespan=lifespan # Use the modern lifespan event handler
 )
 
 # CORS Middleware 
@@ -50,62 +128,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global list kept for health check status reporting
-vector_store: List[Any] = []
-
-
-@app.on_event("startup")
-async def check_qdrant_collection():
-    """Checks the existence and size of the Qdrant collection on API startup.
-    Runs ingestion only if the collection is missing or empty (0 points).
-    """
-    global vector_store 
-    vector_store = [] # Assume empty until confirmed
-    
-    should_ingest = False
-    
-    try:
-        # Check if the collection exists and get its status
-        info: CollectionInfo = qdrant_client.get_collection(collection_name=COLLECTION_NAME)
-        count = info.points_count if info.points_count is not None else 0
-        
-        if count == 0:
-            print(f"WARNING: Qdrant collection '{COLLECTION_NAME}' exists but is EMPTY (0 points). Triggering ingestion.")
-            should_ingest = True
-        else:
-            print(f"SUCCESS: Qdrant collection '{COLLECTION_NAME}' found with {count} points.")
-            # Update the global list size for the health check endpoint
-            vector_store = [{} for _ in range(count)] 
-            return # Exit if collection is ready
-            
-    except UnexpectedResponse as e:
-        # This typically catches 404 Not Found error from Qdrant when collection is missing.
-        if "Not found" in str(e):
-            print(f"WARNING: Qdrant collection '{COLLECTION_NAME}' not found. Triggering ingestion.")
-            should_ingest = True
-        else:
-            print(f"WARNING: Qdrant check failed (Unexpected Response: {e}). Triggering ingestion if possible.")
-            should_ingest = True # Try to ingest anyway
-
-    except Exception as e:
-        # This block catches connection issues.
-        print(f"WARNING: Qdrant connection check failed (connection issue: {e}). Triggering ingestion.")
-        should_ingest = True
-            
-    if should_ingest:
-        # Call the imported ingestion function
-        ingest_documents() 
-        
-        # After ingestion, re-check the count for the health endpoint
-        # This block remains but is isolated to startup only.
-        try:
-            info: CollectionInfo = qdrant_client.get_collection(collection_name=COLLECTION_NAME)
-            count = info.points_count if info.points_count is not None else 0
-            vector_store = [{} for _ in range(count)] 
-            print(f"INFO: Ingestion finished. Collection now has {count} points.")
-        except Exception as e:
-            print(f"ERROR: Failed to verify collection count after ingestion: {e}")
-            # vector_store remains [] if re-check fails
 
 # --- API Endpoints ---
 
@@ -115,17 +137,21 @@ async def root():
     return FileResponse("index.html")
 
 @app.get("/status")
-async def get_current_status():
+async def get_current_status(request: Request):
     """
     API endpoint to provide current system status for the dashboard.
-    Distinguishes between 'Collection Missing' and 'Host Unavailable'.
+    Dependencies accessed via request.app.state.
     """
+    client: QdrantClient = request.app.state.qdrant_client
+    config = request.app.state.config
+    COLLECTION_NAME = config["QDRANT_COLLECTION_NAME"]
+    
     qdrant_status = "UNAVAILABLE (Check Qdrant Host)"
     vector_size = 0
     
     try:
         # 1. Check if the collection exists and get its status
-        info: CollectionInfo = qdrant_client.get_collection(collection_name=COLLECTION_NAME)
+        info: CollectionInfo = client.get_collection(collection_name=COLLECTION_NAME)
         vector_size = info.points_count if info.points_count is not None else 0
         
         if vector_size == 0:
@@ -134,17 +160,13 @@ async def get_current_status():
             qdrant_status = "READY"
             
     except UnexpectedResponse as e:
-        # This typically catches 404 Not Found error from Qdrant when collection is missing.
         if "Not found" in str(e):
-             # NEW STATUS: Collection is missing, which means it's empty from a data perspective
              qdrant_status = "EMPTY (Collection Missing)" 
              vector_size = 0
         else:
-            # Handle other unexpected errors as potential connection issues
             qdrant_status = "UNAVAILABLE (Qdrant Error)"
             print(f"ERROR: Unexpected Qdrant response: {e}")
     except Exception as e:
-        # Catch connection failures or other generic errors
         print(f"ERROR: Failed to connect to Qdrant or generic error: {e}")
         # qdrant_status remains "UNAVAILABLE (Check Qdrant Host)"
 
@@ -156,13 +178,16 @@ async def get_current_status():
     }
 
 @app.post("/ingest")
-async def trigger_ingestion():
+async def trigger_ingestion(request: Request):
     """
     Triggers the document ingestion process, reloading the Qdrant vector store.
-    Includes a retry loop to ensure the collection count is available after upload.
     """
     print("INFO: Ingestion API endpoint hit. Starting document ingestion...")
     
+    client: QdrantClient = request.app.state.qdrant_client
+    config = request.app.state.config
+    COLLECTION_NAME = config["QDRANT_COLLECTION_NAME"]
+
     MAX_RETRIES = 5
     RETRY_DELAY = 1.0 # seconds
     
@@ -176,8 +201,7 @@ async def trigger_ingestion():
         count = 0
         for attempt in range(MAX_RETRIES):
             try:
-                # Check for the collection size using the main Qdrant client
-                info: CollectionInfo = qdrant_client.get_collection(collection_name=COLLECTION_NAME)
+                info: CollectionInfo = client.get_collection(collection_name=COLLECTION_NAME)
                 count = info.points_count if info.points_count is not None else 0
                 
                 if count > 0:
@@ -192,20 +216,13 @@ async def trigger_ingestion():
                     print(f"WARNING: Collection not yet visible on attempt {attempt+1}. Retrying in {RETRY_DELAY}s...")
                     time.sleep(RETRY_DELAY)
                 else:
-                    # Reraise unexpected errors
                     raise 
 
             except Exception as e:
-                # Catch connection errors during polling
                 print(f"ERROR during collection verification: {e}. Retrying in {RETRY_DELAY}s...")
                 time.sleep(RETRY_DELAY)
-
-        # 3. Final status update
-        global vector_store 
-        vector_store = [{} for _ in range(count)] # Update global state
         
         if count == 0:
-             # If we tried all retries and count is still 0
              error_msg = "Ingestion completed but collection count is 0 after retries. Check Qdrant logs."
              print(f"FATAL: {error_msg}")
              raise HTTPException(status_code=500, detail=error_msg)
@@ -219,11 +236,14 @@ async def trigger_ingestion():
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {e}")
 
 @app.delete("/ingest/delete")
-async def delete_ingestion_data():
+async def delete_ingestion_data(request: Request):
     """
     Permanently deletes the Qdrant collection and the local LlamaIndex data directory.
-    This effectively resets the entire RAG knowledge base.
     """
+    client: QdrantClient = request.app.state.qdrant_client
+    config = request.app.state.config
+    COLLECTION_NAME = config["QDRANT_COLLECTION_NAME"]
+
     qdrant_deleted = False
     local_data_deleted = False
 
@@ -231,13 +251,12 @@ async def delete_ingestion_data():
 
     # 1. Delete Qdrant Collection
     try:
-        qdrant_client.delete_collection(collection_name=COLLECTION_NAME)
+        client.delete_collection(collection_name=COLLECTION_NAME)
         qdrant_deleted = True
         print(f"SUCCESS: Qdrant collection '{COLLECTION_NAME}' deleted.")
     except UnexpectedResponse as e:
-        # Qdrant returns 404 if the collection doesn't exist, which is fine for a delete operation
         if "Not found" in str(e):
-            qdrant_deleted = True # Treat as successful if it wasn't there
+            qdrant_deleted = True 
             print(f"INFO: Qdrant collection '{COLLECTION_NAME}' not found, treating as deleted.")
         else:
             print(f"ERROR: Failed to delete Qdrant collection (Unexpected Response): {e}")
@@ -259,30 +278,32 @@ async def delete_ingestion_data():
     else:
         local_data_deleted = True
         print(f"INFO: Local directory '{persistentPath}' not found, treating as deleted.")
-
-    # 3. Update global status (set vector count to 0)
-    global vector_store
-    vector_store = []
     
     return {
         "message": f"Data deletion successful. Qdrant collection: {'Deleted' if qdrant_deleted else 'Failed'}, Local Index: {'Deleted' if local_data_deleted else 'Failed'}.",
         "vector_store_size": 0
     }
 
-
 @app.post("/query/rag", response_model=RAGResponse)
-async def handle_rag_query(request: QueryRequest):
+async def handle_rag_query(request: Request, api_request: QueryRequest):
     """The main RAG endpoint."""
-    # Check for collection health based on successful check in startup
+    
+    client: QdrantClient = request.app.state.qdrant_client
+    config = request.app.state.config
+    COLLECTION_NAME = config["QDRANT_COLLECTION_NAME"]
+    RERANKER_MODEL = request.app.state.reranker_model
+    RAG_PROMPT_TEMPLATE = request.app.state.rag_prompt_template
+
+    # Health check for Qdrant *before* running RAG
     try:
-        info: CollectionInfo = qdrant_client.get_collection(collection_name=COLLECTION_NAME)
+        info: CollectionInfo = client.get_collection(collection_name=COLLECTION_NAME)
         if info.points_count is None or info.points_count == 0:
              raise HTTPException(status_code=503, detail="Qdrant collection is empty. Please run ingestion or check server logs.")
     except Exception:
         raise HTTPException(status_code=503, detail="Qdrant connection failed or collection is missing. The vector database is unavailable.")
 
     try:
-        query = request.query
+        query = api_request.query
         print(f"\n--- API Query Received: '{query}' ---")
         
         # 1. Query Embedding
@@ -293,7 +314,7 @@ async def handle_rag_query(request: QueryRequest):
         retrieved_chunks = retrieve_chunks(query_vector)
         print(f"INFO: Retrieved {len(retrieved_chunks)} relevant chunks from Qdrant.")
 
-         # 3. Rerank the Retrieved Chunks using LLM
+        # 3. Rerank the Retrieved Chunks using LLM
         if RERANKER_MODEL and len(retrieved_chunks) > 0:
             print(f"INFO: Starting fast cross-encoder reranking for {len(retrieved_chunks)} chunks.")
             
@@ -301,7 +322,6 @@ async def handle_rag_query(request: QueryRequest):
             query_chunk_pairs = [[query, c['text']] for c in retrieved_chunks]
             
             # 3. Reranking Step: Get new relevance scores using the cross-encoder
-            # The .predict() call is the core of the reranker algorithm
             rerank_scores = RERANKER_MODEL.predict(query_chunk_pairs)
             
             # Pair the new scores with the original chunks
@@ -310,19 +330,21 @@ async def handle_rag_query(request: QueryRequest):
             # Sort the chunks based on the new rerank_score (highest first)
             scored_chunks.sort(key=lambda x: x[0], reverse=True)
             
-            # Get the top N chunks after reranking, where N is smaller (e.g., 3-5)
-            # This is crucial for *maximizing LLM recall* by *minimizing context tokens*
-            TOP_N_RERANKED = 5 # A conservative, fast number (you can make this configurable)
+            # Get the top N chunks after reranking
+            TOP_N_RERANKED = config["TOP_N_RERANKED"]
             
-            # Extract the reordered chunks (discarding the temporary score)
+            # Use the reordered chunks for the context (discarding the temporary score)
             final_context_chunks = [c[1] for c in scored_chunks[:TOP_N_RERANKED]]
             
             print(f"INFO: Reranking complete. Selected Top {len(final_context_chunks)} chunks for context.")
+        else:
+             final_context_chunks = retrieved_chunks # Use all retrieved if no reranker/no chunks
         
         # 4. Prompt Construction
-        context = "\n---\n".join([c['text'] for c in retrieved_chunks])
+        # Use the *reranked/selected* chunks for the context
+        context = "\n---\n".join([c['text'] for c in final_context_chunks])
+        
         if not RAG_PROMPT_TEMPLATE:
-             # Should ideally not happen if startup was successful
              raise RuntimeError("RAG Prompt Template failed to load during startup.")
 
         rag_prompt = RAG_PROMPT_TEMPLATE.format(context=context, query=query)
@@ -330,7 +352,7 @@ async def handle_rag_query(request: QueryRequest):
         # 5. Generation (LLM Call)
         llm_answer = generate_ollama_response(rag_prompt)
 
-        # 6. Format Response
+        # 6. Format Response (Sources should include *all* retrieved chunks for transparency)
         sources_list = [
             {"source": c['source'], "similarity_score": f"{c['score']:.4f}"} 
             for c in retrieved_chunks
@@ -347,12 +369,22 @@ async def handle_rag_query(request: QueryRequest):
         raise
     except Exception as e:
         print(f"FATAL RAG ERROR: {e}")
-        # Return the specific error message to the client for better debugging
         raise HTTPException(status_code=500, detail=f"Internal server error during RAG process: {e}")
-
 
 
 # --- Run the application ---
 if __name__ == "__main__":
-    # Start the API server. Ingestion is now triggered via the /ingest API endpoint.
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+    # Temporarily instantiate RAGSystemInitializer to get host/port for uvicorn only
+    try:
+        temp_config_loader = RAGSystemInitializer()
+        temp_config = temp_config_loader.config # config is loaded in __init__
+    except Exception as e:
+        print(f"FATAL: Could not load initial config for uvicorn: {e}")
+        sys.exit(1)
+
+    api_host = temp_config.get("API_HOST", "0.0.0.0")
+    api_port = temp_config.get("API_PORT", 8000)
+
+    print(f"Starting API server on {api_host}:{api_port}")
+    # The application itself is started by referencing the app object created above
+    uvicorn.run(app, host=api_host, port=api_port)
