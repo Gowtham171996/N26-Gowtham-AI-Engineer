@@ -3,6 +3,8 @@ import time
 import os
 import sys
 import shutil
+from datetime import datetime
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse 
@@ -11,7 +13,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
 # Module level imports
-from app.ingest import ingest_documents
+from app.ingest import _calculate_and_persist_health_score, ingest_documents
 from app.rag import generate_ollama_response, get_embedding, retrieve_chunks
 from app.config import RAGSystemInitializer
 from app.reranker import RerankerModel # Assuming this provides a model object or similar utility
@@ -47,6 +49,7 @@ async def lifespan(app: FastAPI):
     qdrant_client: Optional[QdrantClient] = None
     initializer: Optional[RAGSystemInitializer] = None
     
+    
     try:
         # 1. Instantiate the Initializer, which loads config and sets LlamaIndex settings
         initializer = RAGSystemInitializer()
@@ -56,12 +59,14 @@ async def lifespan(app: FastAPI):
         config = initializer.config
         rag_prompt_template = initializer.load_rag_prompt_template()
         reranker_model = RerankerModel() 
+        
 
         # 3. Store initialized components in the app state for dependency injection
         app.state.config = config
         app.state.qdrant_client = qdrant_client
         app.state.rag_prompt_template = rag_prompt_template
         app.state.reranker_model = reranker_model
+        app.state.health_score = 0
         
         # 4. Perform Initial Collection Check & Ingestion (logic moved from @app.on_event)
         COLLECTION_NAME = config["QDRANT_COLLECTION_NAME"]
@@ -96,6 +101,8 @@ async def lifespan(app: FastAPI):
             ingest_documents() 
             print(f"INFO: Initial ingestion finished.")
 
+        app.state.health_score = _calculate_and_persist_health_score(config, initializer.vector_store, Settings.embed_model)
+        
         print("INFO: All RAG components successfully initialized and stored in app state.")
         
     except Exception as e:
@@ -158,6 +165,8 @@ async def get_current_status(request: Request):
             qdrant_status = "EMPTY (Requires Ingestion)"
         else:
             qdrant_status = "READY"
+        
+        
             
     except UnexpectedResponse as e:
         if "Not found" in str(e):
@@ -174,7 +183,13 @@ async def get_current_status(request: Request):
         "qdrant_status": qdrant_status,
         "vector_size": vector_size,
         "llm_model": config['OLLAMA_LLM_MODEL'],
-        "embed_model": config['OLLAMA_EMBEDDING_MODEL']
+        "embed_model": config['OLLAMA_EMBEDDING_MODEL'],
+        "health_score": 
+        {
+            "score": request.app.state.health_score.score,
+            "timestamp":request.app.state.health_score.timestamp
+
+        }
     }
 
 @app.post("/ingest")
@@ -279,6 +294,8 @@ async def delete_ingestion_data(request: Request):
         local_data_deleted = True
         print(f"INFO: Local directory '{persistentPath}' not found, treating as deleted.")
     
+    app.state.health_score = 0
+
     return {
         "message": f"Data deletion successful. Qdrant collection: {'Deleted' if qdrant_deleted else 'Failed'}, Local Index: {'Deleted' if local_data_deleted else 'Failed'}.",
         "vector_store_size": 0

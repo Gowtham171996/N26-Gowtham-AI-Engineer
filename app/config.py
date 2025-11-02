@@ -8,10 +8,12 @@ from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 
+
 # --- Qdrant Integration ---
 from qdrant_client import QdrantClient
 
 # --- RAG SYSTEM INITIALIZER CLASS ---
+@staticmethod
 class RAGSystemInitializer:
     """
     A class to handle all configuration loading and initialization of 

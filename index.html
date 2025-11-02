@@ -178,6 +178,14 @@
                 </div>
             </div>
 
+            <!-- ICS score -->
+            <div class="p-4 rounded-lg shadow-md section-box">
+                <p class="text-sm font-medium" style="color: var(--text-secondary);">ICS Score</p>
+                <div id="status-ics-score" class="text-2xl font-extrabold text-green-400 mt-2">
+                    0
+                </div>
+            </div>
+
             <!-- LLM Model -->
             <div class="p-4 rounded-lg shadow-md col-span-1 md:col-span-2 lg:col-span-1 section-box">
                 <p class="text-sm font-medium" style="color: var(--text-secondary);">LLM Model</p>
@@ -190,6 +198,14 @@
              <div class="p-4 rounded-lg shadow-md section-box">
                 <p class="text-sm font-medium" style="color: var(--text-secondary);">Embedding Model</p>
                 <code id="status-embed-model" class="block p-1 rounded text-xs mt-2 code-box text-blue-400">
+                    Loading...
+                </code>
+            </div>
+
+             <!-- Time Last indexed -->
+             <div class="p-4 rounded-lg shadow-md section-box">
+                <p class="text-sm font-medium" style="color: var(--text-secondary);">Time last indexed</p>
+                <code id="time-last-indexed" class="block p-1 rounded text-xs mt-2 code-box text-blue-400">
                     Loading...
                 </code>
             </div>
@@ -226,7 +242,7 @@
             <!-- Query Input -->
             <div class="mb-4">
                 <label for="query-input" class="block text-sm font-medium mb-2" style="color: var(--text-secondary);">Enter your query:</label>
-                <input type="text" id="query-input" placeholder="e.g., What documents are supported?"
+                <input type="text" id="query-input" placeholder="e.g., What is Responsible regulatory authority?"
                        class="w-full px-4 py-2 border rounded-lg focus:ring-purple-500 focus:border-purple-500 shadow-sm input-field"
                        onkeydown="if(event.key === 'Enter') handleQuery()">
             </div>
@@ -274,6 +290,8 @@
             ingestButton: document.getElementById('ingest-button'),
             deleteButton: document.getElementById('delete-button'),
             ingestionMessage: document.getElementById('ingestion-message'),
+            icsScore: document.getElementById('status-ics-score'),
+            timestamp: document.getElementById('time-last-indexed'),
             
             // QUERY ELEMENTS
             queryInput: document.getElementById('query-input'),
@@ -354,19 +372,25 @@
 
                 // 3. Vector Count
                 statusElements.vectorCount.textContent = data.vector_size.toLocaleString();
+                statusElements.icsScore.textContent = data.health_score.score.toLocaleString();
                 
                 // 4. Model Info
                 statusElements.llmModel.textContent = data.llm_model;
                 statusElements.embedModel.textContent = data.embed_model;
+                statusElements.timestamp.textContent = data.health_score.timestamp.toLocaleString();
+                
 
 
             } catch (error) {
                 console.error("Error fetching status:", error);
                 setPillStatus(statusElements.overall, "OFFLINE");
                 setPillStatus(statusElements.qdrant, 'API Error');
-                statusElements.vectorCount.textContent = 'Error';
+                statusElements.vectorCount.textContent = '0';
                 statusElements.llmModel.textContent = 'Unknown';
                 statusElements.embedModel.textContent = 'Unknown';
+                statusElements.icsScore.textContent = '0';
+                statusElements.timestamp.textContent = 'Unknown';
+                
             }
         }
         
