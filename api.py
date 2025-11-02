@@ -12,18 +12,24 @@ from fastapi.concurrency import asynccontextmanager
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
+# NEW: Import Gemini LLM and the base LLM type for direct generation calls
+# NOTE: Ensure 'llama-index-google-genai' is installed
+from llama_index.llms.gemini import Gemini
+from llama_index.core.llms import LLM
+
 # Module level imports
 from app.ingest import _calculate_and_persist_health_score, ingest_documents
-from app.rag import generate_ollama_response, get_embedding, retrieve_chunks
+# We keep the imports for model-agnostic retrieval components
+from app.rag import get_embedding, retrieve_chunks 
 from app.config import RAGSystemInitializer
-from app.reranker import RerankerModel # Assuming this provides a model object or similar utility
+from app.reranker import RerankerModel # Feature preserved
 
 # --- Qdrant Integration ---
 from qdrant_client.http.models import CollectionInfo
 from qdrant_client.http.exceptions import UnexpectedResponse 
 from qdrant_client import QdrantClient # Need to import the client class for typing
 
-# --- LlamaIndex/Ollama Configuration ---
+# --- LlamaIndex/Model Configuration ---
 from llama_index.core import Settings
 
 
@@ -36,107 +42,105 @@ class RAGResponse(BaseModel):
     sources: List[Dict[str, str]]
 
 
+# --- RAG Helper Function for Generation (NEW: Gemini Specific) ---
+def generate_gemini_response(prompt: str) -> str:
+    """
+    Generates a response from the configured LLM (Gemini 1.5 Flash).
+    Relies on Settings.llm being set during the application lifespan/ingest process.
+    """
+    llm: Optional[LLM] = Settings.llm
+
+    if not llm:
+        # This case should ideally not happen if startup succeeded
+        raise ValueError("LLM not initialized. Check application startup and ingest logs.")
+
+    try:
+        # LlamaIndex's complete method uses the LLM instance from Settings.llm
+        response = llm.complete(prompt)
+        return str(response)
+    except Exception as e:
+        print(f"ERROR: Gemini LLM generation failed: {e}")
+        # Re-raise as a ValueError to be caught by the endpoint's try-except block
+        raise ValueError(f"LLM Generation Error: {e}")
+
+
 # --- APPLICATION LIFESPAN CONTEXT MANAGER ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Context manager that runs startup and shutdown logic. All initialization 
-    is moved here and stored in app.state.
+    is moved here and stored in the app.state for access by endpoints.
     """
-    print("\n--- Running FastAPI Startup Lifespan ---")
-    
-    # Dependencies initialized inside the try block
+    app.state.index = None
+    app.state.config = {}
+    app.state.reranker = None
+    app.state.is_indexing = False
     qdrant_client: Optional[QdrantClient] = None
-    initializer: Optional[RAGSystemInitializer] = None
     
+    print("--- FastAPI Startup: RAG System Initialization ---")
     
     try:
-        # 1. Instantiate the Initializer, which loads config and sets LlamaIndex settings
-        initializer = RAGSystemInitializer()
+        # Load configuration, initialize Qdrant client, and set up LlamaIndex models
+        rAGSystemInitializer = RAGSystemInitializer()
+        app.state.config = rAGSystemInitializer.config
+        app.state.vector_store = rAGSystemInitializer.vector_store
+        app.state.rag_prompt_template = rAGSystemInitializer.load_rag_prompt_template()
+        qdrant_client = rAGSystemInitializer.qdrant_client
+        COLLECTION_NAME = rAGSystemInitializer.config["QDRANT_COLLECTION_NAME"]
         
-        # 2. Extract necessary components from the initialized object
-        qdrant_client = initializer.qdrant_client
-        config = initializer.config
-        rag_prompt_template = initializer.load_rag_prompt_template()
-        reranker_model = RerankerModel() 
+        # Load the Reranker model (Feature preserved)
+        app.state.reranker = RerankerModel()
         
-
-        # 3. Store initialized components in the app state for dependency injection
-        app.state.config = config
+        # NOTE: ingest_documents() is called once to ensure all global Settings 
+        # (LLM/Embedding Model: Gemini) are configured and the index is loaded/updated.
+        
+        app.state.is_indexing = True
         app.state.qdrant_client = qdrant_client
-        app.state.rag_prompt_template = rag_prompt_template
-        app.state.reranker_model = reranker_model
-        app.state.health_score = 0
-        
-        # 4. Perform Initial Collection Check & Ingestion (logic moved from @app.on_event)
-        COLLECTION_NAME = config["QDRANT_COLLECTION_NAME"]
-        should_ingest = False
-        
-        try:
-            # Check if the collection exists and get its status
-            info: CollectionInfo = qdrant_client.get_collection(collection_name=COLLECTION_NAME)
-            count = info.points_count if info.points_count is not None else 0
-            
-            if count == 0:
-                print(f"WARNING: Qdrant collection '{COLLECTION_NAME}' exists but is EMPTY (0 points). Triggering ingestion.")
-                should_ingest = True
-            else:
-                print(f"SUCCESS: Qdrant collection '{COLLECTION_NAME}' found with {count} points.")
-                
-        except UnexpectedResponse as e:
-            # Catches 404 Not Found error from Qdrant when collection is missing.
-            if "Not found" in str(e):
-                print(f"WARNING: Qdrant collection '{COLLECTION_NAME}' not found. Triggering ingestion.")
-                should_ingest = True
-            else:
-                print(f"WARNING: Qdrant check failed (Unexpected Response: {e}). Trying ingestion.")
-                should_ingest = True 
 
-        except Exception as e:
-            print(f"WARNING: Qdrant connection check failed (connection issue: {e}). Trying ingestion.")
-            should_ingest = True
-                
-        if should_ingest:
-            # Call the imported ingestion function
+                # 1. Check if the collection exists and get its status
+        info: CollectionInfo = qdrant_client.get_collection(collection_name=COLLECTION_NAME)
+        vector_size = info.points_count if info.points_count is not None else 0
+        
+        if vector_size == 0:
+            # Call ingest_documents once to set global Settings and load the index
             ingest_documents() 
-            print(f"INFO: Initial ingestion finished.")
+            
+            # Now that Settings are configured globally, load the index using the configured components
+            from app.ingest import build_or_update_index # Import locally to avoid circular dependencies
+            app.state.index = build_or_update_index(
+                app.state.config, 
+                app.state.vector_store, 
+                Settings.embed_model
+            )
+        
+        app.state.health_score = _calculate_and_persist_health_score(rAGSystemInitializer.config, rAGSystemInitializer.vector_store, Settings.embed_model)
+        app.state.is_indexing = False
+        print("--- RAG System Ready ---")
 
-        app.state.health_score = _calculate_and_persist_health_score(config, initializer.vector_store, Settings.embed_model)
-        
-        print("INFO: All RAG components successfully initialized and stored in app state.")
-        
     except Exception as e:
-        print(f"CRITICAL STARTUP FAILURE during lifespan: {e}")
-        # Re-raise the exception to prevent the server from starting if initialization failed
-        sys.exit(1)
-
-    # Yield control to the application to handle requests
+        print(f"FATAL STARTUP ERROR: {e}")
+        
     yield
     
-    # --- Shutdown Logic (runs when the application is shutting down) ---
-    print("\n--- Running FastAPI Shutdown Lifespan ---")
-    # Add any necessary cleanup here (e.g., closing client connections if necessary)
-    print("INFO: Shutdown sequence completed.")
+    # --- Shutdown logic ---
+    print("--- FastAPI Shutdown ---")
 
 
-# --- Fast API Setup: Pass the lifespan function ---
-app = FastAPI(
-    title="Ollama Qdrant RAG API",
-    description="A RAG Backend using Ollama for embeddings/LLM and Qdrant for vector storage.",
-    lifespan=lifespan # Use the modern lifespan event handler
-)
+# --- FASTAPI APP SETUP ---
+app = FastAPI(lifespan=lifespan, 
+              title="N26 RAG Backend", 
+              description="RAG System using Qdrant, LlamaIndex, and Gemini Models.")
 
-# CORS Middleware 
+# CORS middleware for local development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],  # Allows all origins
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
 )
 
 
-# --- API Endpoints ---
 
 @app.get("/", response_class=FileResponse)
 async def root():
@@ -166,8 +170,6 @@ async def get_current_status(request: Request):
         else:
             qdrant_status = "READY"
         
-        
-            
     except UnexpectedResponse as e:
         if "Not found" in str(e):
              qdrant_status = "EMPTY (Collection Missing)" 
@@ -182,8 +184,8 @@ async def get_current_status(request: Request):
     return {
         "qdrant_status": qdrant_status,
         "vector_size": vector_size,
-        "llm_model": config['OLLAMA_LLM_MODEL'],
-        "embed_model": config['OLLAMA_EMBEDDING_MODEL'],
+        "llm_model": config['LLM_MODEL'],
+        "embed_model": config['EMBEDDING_MODEL'],
         "health_score": 
         {
             "score": request.app.state.health_score["score"],
@@ -193,62 +195,41 @@ async def get_current_status(request: Request):
         }
     }
 
+
+# --- MANUAL INGESTION ENDPOINT ---
 @app.post("/ingest")
-async def trigger_ingestion(request: Request):
+async def ingest_trigger():
     """
-    Triggers the document ingestion process, reloading the Qdrant vector store.
+    Manually triggers the ingestion and indexing pipeline.
     """
-    print("INFO: Ingestion API endpoint hit. Starting document ingestion...")
-    
-    client: QdrantClient = request.app.state.qdrant_client
-    config = request.app.state.config
-    COLLECTION_NAME = config["QDRANT_COLLECTION_NAME"]
+    if app.state.is_indexing:
+        raise HTTPException(status_code=429, detail="Indexing is already in progress.")
 
-    MAX_RETRIES = 5
-    RETRY_DELAY = 1.0 # seconds
-    
     try:
-        # 1. The ingestion function handles collection recreation and upload.
-        ingest_documents()
+        app.state.is_indexing = True
+        ingest_documents() # This updates the global Settings and rebuilds/updates the index
         
-        print("INFO: Ingestion reported complete. Verifying collection status...")
+        # Reload the index after ingestion to ensure the app uses the latest version
+        from app.ingest import build_or_update_index
+        app.state.index = build_or_update_index(
+            app.state.config, 
+            app.state.vector_store, 
+            Settings.embed_model
+        )
         
-        # 2. Polling loop to wait for Qdrant collection count to be updated/visible
-        count = 0
-        for attempt in range(MAX_RETRIES):
-            try:
-                info: CollectionInfo = client.get_collection(collection_name=COLLECTION_NAME)
-                count = info.points_count if info.points_count is not None else 0
-                
-                if count > 0:
-                    print(f"SUCCESS: Collection verified after {attempt+1} attempts with {count} points.")
-                    break
-                else:
-                    print(f"WARNING: Collection found but count is 0 on attempt {attempt+1}. Retrying in {RETRY_DELAY}s...")
-                    time.sleep(RETRY_DELAY)
-            
-            except UnexpectedResponse as e:
-                if "Not found" in str(e):
-                    print(f"WARNING: Collection not yet visible on attempt {attempt+1}. Retrying in {RETRY_DELAY}s...")
-                    time.sleep(RETRY_DELAY)
-                else:
-                    raise 
-
-            except Exception as e:
-                print(f"ERROR during collection verification: {e}. Retrying in {RETRY_DELAY}s...")
-                time.sleep(RETRY_DELAY)
+        app.state.is_indexing = False
         
-        if count == 0:
-             error_msg = "Ingestion completed but collection count is 0 after retries. Check Qdrant logs."
-             print(f"FATAL: {error_msg}")
-             raise HTTPException(status_code=500, detail=error_msg)
+        # Recalculate health score after successful ingestion
+        _calculate_and_persist_health_score(
+            app.state.config, 
+            app.state.vector_store, 
+            Settings.embed_model
+        )
         
-        return {"message": f"Ingestion completed successfully! Collection now verified with {count} points.", "vector_store_size": count}
-    
-    except HTTPException:
-        raise
+        return {"message": "Ingestion completed successfully. Index reloaded."}
     except Exception as e:
-        print(f"FATAL INGESTION ERROR: {e}")
+        app.state.is_indexing = False
+        print(f"INGESTION ERROR: {e}")
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {e}")
 
 @app.delete("/ingest/delete")
@@ -300,75 +281,69 @@ async def delete_ingestion_data(request: Request):
         "vector_store_size": 0
     }
 
+# --- MAIN RAG ENDPOINT ---
 @app.post("/query/rag", response_model=RAGResponse)
-async def handle_rag_query(request: Request, api_request: QueryRequest):
-    """The main RAG endpoint."""
-    
-    client: QdrantClient = request.app.state.qdrant_client
-    config = request.app.state.config
-    COLLECTION_NAME = config["QDRANT_COLLECTION_NAME"]
-    RERANKER_MODEL = request.app.state.reranker_model
-    RAG_PROMPT_TEMPLATE = request.app.state.rag_prompt_template
-
-    # Health check for Qdrant *before* running RAG
-    try:
-        info: CollectionInfo = client.get_collection(collection_name=COLLECTION_NAME)
-        if info.points_count is None or info.points_count == 0:
-             raise HTTPException(status_code=503, detail="Qdrant collection is empty. Please run ingestion or check server logs.")
-    except Exception:
-        raise HTTPException(status_code=503, detail="Qdrant connection failed or collection is missing. The vector database is unavailable.")
+async def rag_query(request: QueryRequest):
+    """
+    Performs the RAG process: Retrieval, Reranking, and Gemini LLM Generation.
+    """
+    query = request.query
 
     try:
-        query = api_request.query
-        print(f"\n--- API Query Received: '{query}' ---")
-        
         # 1. Query Embedding
         query_vector = get_embedding(query)
         print("INFO: Query embedding generated.")
 
-        # 2. Retrieval (Queries Qdrant)
+        # 1. Retrieval (uses Settings.embed_model, now Gemini Embedding)
         retrieved_chunks = retrieve_chunks(query_vector)
-        print(f"INFO: Retrieved {len(retrieved_chunks)} relevant chunks from Qdrant.")
-
-        # 3. Rerank the Retrieved Chunks using LLM
-        if RERANKER_MODEL and len(retrieved_chunks) > 0:
-            print(f"INFO: Starting fast cross-encoder reranking for {len(retrieved_chunks)} chunks.")
+        
+        if not retrieved_chunks:
+            # Fallback for empty retrieval
+            rag_prompt = f"No relevant information was found in the knowledge base for the query: '{query}'. Please answer only with information you know generally about the topic, or state clearly that no specific context was found."
             
-            # Prepare data for the Cross-Encoder: list of [query, chunk_text] pairs
-            query_chunk_pairs = [[query, c['text']] for c in retrieved_chunks]
-            
-            # 3. Reranking Step: Get new relevance scores using the cross-encoder
-            rerank_scores = RERANKER_MODEL.predict(query_chunk_pairs)
-            
-            # Pair the new scores with the original chunks
-            scored_chunks = list(zip(rerank_scores, retrieved_chunks))
-            
-            # Sort the chunks based on the new rerank_score (highest first)
-            scored_chunks.sort(key=lambda x: x[0], reverse=True)
-            
-            # Get the top N chunks after reranking
-            TOP_N_RERANKED = config["TOP_N_RERANKED"]
-            
-            # Use the reordered chunks for the context (discarding the temporary score)
-            final_context_chunks = [c[1] for c in scored_chunks[:TOP_N_RERANKED]]
-            
-            print(f"INFO: Reranking complete. Selected Top {len(final_context_chunks)} chunks for context.")
         else:
-             final_context_chunks = retrieved_chunks # Use all retrieved if no reranker/no chunks
-        
-        # 4. Prompt Construction
-        # Use the *reranked/selected* chunks for the context
-        context = "\n---\n".join([c['text'] for c in final_context_chunks])
-        
-        if not RAG_PROMPT_TEMPLATE:
-             raise RuntimeError("RAG Prompt Template failed to load during startup.")
+            # 2. Reranking (Feature preserved)
+            RERANKER_MODEL = app.state.reranker
+            
+            # 3. Rerank the Retrieved Chunks using LLM
+            if RERANKER_MODEL and len(retrieved_chunks) > 0:
+                print(f"INFO: Starting fast cross-encoder reranking for {len(retrieved_chunks)} chunks.")
+                
+                # Prepare data for the Cross-Encoder: list of [query, chunk_text] pairs
+                query_chunk_pairs = [[query, c['text']] for c in retrieved_chunks]
+                
+                # 3. Reranking Step: Get new relevance scores using the cross-encoder
+                rerank_scores = RERANKER_MODEL.predict(query_chunk_pairs)
+                
+                # Pair the new scores with the original chunks
+                scored_chunks = list(zip(rerank_scores, retrieved_chunks))
+                
+                # Sort the chunks based on the new rerank_score (highest first)
+                scored_chunks.sort(key=lambda x: x[0], reverse=True)
+                
+                # Get the top N chunks after reranking
+                TOP_N_RERANKED = app.state.config["TOP_N_RERANKED"]
+                
+                # Use the reordered chunks for the context (discarding the temporary score)
+                final_context_chunks = [c[1] for c in scored_chunks[:TOP_N_RERANKED]]
+                
+                print(f"INFO: Reranking complete. Selected Top {len(final_context_chunks)} chunks for context.")
+            else:
+                final_context_chunks = retrieved_chunks # Use all retrieved if no reranker/no chunks
+            
+            # 3. Context Formatting (Feature preserved)
+            context_text = "\n\n---\n\n".join([c['text'] for c in final_context_chunks])
 
-        rag_prompt = RAG_PROMPT_TEMPLATE.format(context=context, query=query)
+            # 4. Prompt Engineering
+            rag_prompt = app.state.rag_prompt_template.format(context=context_text, query=query)
 
-        # 5. Generation (LLM Call)
-        llm_answer = generate_ollama_response(rag_prompt)
 
-        # 6. Format Response (Sources should include *all* retrieved chunks for transparency)
+
+        # 5. Generation (LLM Call - using the new Gemini function)
+        # This replaces generate_ollama_response
+        llm_answer = generate_gemini_response(rag_prompt)
+
+        # 6. Format Response (Sources feature preserved)
         sources_list = [
             {"source": c['source'], "similarity_score": f"{c['score']:.4f}"} 
             for c in retrieved_chunks
@@ -380,8 +355,10 @@ async def handle_rag_query(request: Request, api_request: QueryRequest):
         )
 
     except ValueError as e:
+        # Catches LLM generation errors
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
+        # Passes through existing HTTPExceptions
         raise
     except Exception as e:
         print(f"FATAL RAG ERROR: {e}")
@@ -400,7 +377,5 @@ if __name__ == "__main__":
 
     api_host = temp_config.get("API_HOST", "0.0.0.0")
     api_port = temp_config.get("API_PORT", 8000)
-
-    print(f"Starting API server on {api_host}:{api_port}")
-    # The application itself is started by referencing the app object created above
-    uvicorn.run(app, host=api_host, port=api_port)
+    
+    uvicorn.run("api:app", host=api_host, port=int(api_port), reload=True)

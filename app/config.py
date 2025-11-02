@@ -4,9 +4,9 @@ import sys
 
 # --- LlamaIndex/Ollama Configuration ---
 from llama_index.core import Settings
-from llama_index.llms.ollama import Ollama
-from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.vector_stores.qdrant import QdrantVectorStore
+from llama_index.embeddings.gemini import GeminiEmbedding
+from llama_index.llms.gemini import Gemini
 
 
 # --- Qdrant Integration ---
@@ -55,18 +55,18 @@ class RAGSystemInitializer:
         """
         print("\n--- 2. Initializing Clients and Settings ---")
 
-        # Set LlamaIndex Settings
-        Settings.llm = Ollama(
-            model=self.config["OLLAMA_LLM_MODEL"], 
-            base_url=self.config["OLLAMA_BASE_URL"], 
-            request_timeout=self.config["OLLAMA_TIMEOUT"]
+        # Set Settings
+        Settings.llm = Gemini(
+            model=  self.config["LLM_MODEL"] ,
+            temperature=0.1, # Example: setting a low temperature for factual RAG   
         )
-        Settings.embed_model = OllamaEmbedding(
-            model_name=self.config["OLLAMA_EMBEDDING_MODEL"], 
-            base_url=self.config["OLLAMA_BASE_URL"]
+
+        Settings.embed_model = GeminiEmbedding(
+            model_name= self.config["EMBEDDING_MODEL"]
         )
-        Settings.num_workers = self.config["OLLAMA_WORKERS"] 
-        print(f"LlamaIndex Settings configured. LLM: {self.config['OLLAMA_LLM_MODEL']}")
+        
+        Settings.num_workers = self.config["LLM_WORKERS"] 
+        print(f"LlamaIndex Settings configured. LLM: {self.config['LLM_MODEL']}")
 
         # Initialize Qdrant Client and Vector Store 
         try:

@@ -1,14 +1,15 @@
-OLLAMA_LLM_MODEL: "gemma3:1b-it-qat"
-OLLAMA_EMBEDDING_MODEL: "nomic-embed-text" # Recommended for RAG tasks
-OLLAMA_BASE_URL: "http://ollama:11434"
+LLM_MODEL: "gemini-2.5-flash"
+EMBEDDING_MODEL: "text-embedding-004" # Recommended for RAG tasks
+
+#OLLAMA_BASE_URL: "http://ollama:11434"
 #OLLAMA_BASE_URL: "http://localhost:11434"
-OLLAMA_TIMEOUT: 120.0
-OLLAMA_WORKERS: 8
+LLM_TIMEOUT: 120.0
+LLM_WORKERS: 8
 
 # --- Qdrant Configuration ---
 
-QDRANT_HOST: "qdrant"
-#QDRANT_HOST: "localhost"
+#QDRANT_HOST: "qdrant"
+QDRANT_HOST: "localhost"
 QDRANT_PORT: 6333
 QDRANT_URL: "http://qdrant:6333"
 QDRANT_API_KEY: ""

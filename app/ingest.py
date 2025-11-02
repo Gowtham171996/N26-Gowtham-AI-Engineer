@@ -1,4 +1,3 @@
-
 import os
 import sys
 import json
@@ -20,6 +19,9 @@ from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core.node_parser import SentenceSplitter 
 
+# NEW: Import Gemini specific models
+from llama_index.llms.gemini import Gemini
+from llama_index.embeddings.gemini import GeminiEmbedding
 
 # Module level imports
 from app.config import RAGSystemInitializer
@@ -73,19 +75,14 @@ def _calculate_and_persist_health_score(
             return
 
         # 4. Sample vectors from Qdrant using scroll
-        # The scroll method is used to iterate over a collection or fetch a batch of points.
-        # It's better suited for fetching an arbitrary set of vectors for sampling.
-        
         # NOTE: scroll returns a tuple (points, next_offset). We only need the points.
         points_batch, _ = qdrant_client.scroll(
             collection_name=collection_name,
             limit=sample_count, # Limit the number of points to fetch
             with_vectors=True, # Crucial: Request the vector data
-            # You can add 'offset' to sample randomly, e.g., offset=random.randint(0, total_count - sample_count)
-            # but using limit alone provides a sufficient non-random sample for a health check.
         )
         
-        # Ensure points_batch is a list of points (it already is from scroll)
+        # Ensure points_batch is a list of points
         sampled_vectors = [np.array(p.vector) for p in points_batch if p.vector is not None]
         
         if not sampled_vectors:
@@ -134,11 +131,10 @@ def _build_full_index(storage_context: StorageContext, config: Dict[str, Any]) -
     # Define the single-layer chunking strategy (Paragraph Splitter)
     SIMPLE_CHUNK_SIZE = config["CHUNK_SIZE"]
     SIMPLE_CHUNK_OVERLAP = config["CHUNK_OVERLAP"]
-    # CHANGED: Use RecursiveCharacterTextSplitter for paragraph-aware splitting
     splitter = SentenceSplitter(
         chunk_size=SIMPLE_CHUNK_SIZE, 
         chunk_overlap=SIMPLE_CHUNK_OVERLAP,
-        paragraph_separator="\n\n"  # Ensures splitting prioritizes paragraph breaks
+        paragraph_separator="\n\n"
     )
 
     # Create nodes
@@ -180,11 +176,10 @@ def build_or_update_index(
     # 2. Configure Node Parser (Chunker)
     SIMPLE_CHUNK_SIZE = config["CHUNK_SIZE"]
     SIMPLE_CHUNK_OVERLAP = config["CHUNK_OVERLAP"]
-    # CHANGED: Use RecursiveCharacterTextSplitter for paragraph-aware splitting
     splitter = SentenceSplitter(
         chunk_size=SIMPLE_CHUNK_SIZE, 
         chunk_overlap=SIMPLE_CHUNK_OVERLAP,
-        paragraph_separator="\n\n" # Ensures splitting prioritizes paragraph breaks
+        paragraph_separator="\n\n"
     )
     
     index: Optional[BaseIndex] = None
@@ -257,7 +252,29 @@ def ingest_documents():
     config = rAGSystemInitializer.config
     vector_store = rAGSystemInitializer.vector_store
     
-    # Use the embed_model from LlamaIndex Settings
+    # --- MODEL CONFIGURATION FIX (Updated Gemini Setup) ---
+    print("\n--- Configuring Gemini Models ---")
+    
+    # 1. Configure Embedding Model: Gemini Embedding (text-embedding-004 is current alias)
+    gemini_embed_model = GeminiEmbedding(
+        model_name= config["EMBEDDING_MODEL"]
+    )
+
+    Settings.embed_model = gemini_embed_model
+    print(f"Embedding Model set to: {Settings.embed_model.model_name}")
+    
+    # 2. Configure LLM: Gemini 2.5 Flash
+    # FIX: Changing from 'gemini-1.5-flash' to 'gemini-2.5-flash' to resolve the 404 error, 
+    # as 2.5 Flash is the latest stable and universally available alias.
+    gemini_llm = Gemini(
+        model=  config["LLM_MODEL"] ,#"gemini-2.5-flash",
+        temperature=0.1 # Example: setting a low temperature for factual RAG
+    )
+    Settings.llm = gemini_llm
+    print(f"LLM set to: {Settings.llm.model}")
+    # --- END MODEL CONFIGURATION FIX ---
+    
+    # Use the embed_model from LlamaIndex Settings (which we just set)
     embed_model = Settings.embed_model 
 
     # 2. Conditional Index Building/Loading (performs the incremental update)
