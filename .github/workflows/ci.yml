@@ -79,13 +79,14 @@ jobs:
           # Install pytest and requests on the runner to hit the Dockerized API
           pip install pytest requests
           
+          
       # --- Test Execution ---
 
       - name: Run Smoke Tests (Health Check & Root Dashboard)
         run: |
-          echo "Checking http://localhost:8000/healthcheck endpoint..."
+          echo "Checking http://localhost:8000/status endpoint..."
           # Curl the API container on the exposed port
-          curl --fail http://localhost:8000/healthcheck
+          curl --fail http://localhost:8000/status
           
           echo "Checking root endpoint for RAG dashboard content..."
           curl -s -f http://localhost:8000/ | grep -q "RAG Service Health & Ingestion"
