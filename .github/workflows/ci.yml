@@ -55,9 +55,9 @@ jobs:
       - name: Build Application Image Locally
         run: |
           # Use the environment variable for the image name and tag it with 'latest'
-          DOCKER_IMAGE_TAG=${{ env.DOCKER_IMAGE_NAME }}:latest
+          DOCKER_IMAGE_TAG=${{ env.DOCKER_IMAGE_NAME }}:v2.0
           echo "Building image $DOCKER_IMAGE_TAG locally..."
-          docker build --tag $DOCKER_IMAGE_TAG .
+          docker build --tag $DOCKER_IMAGE_TAG -f Dockerfile.n26rag .
 
       # Start the full RAG stack using Docker Compose and wait for all services to be healthy
       - name: Start Full RAG Stack (Docker Compose)

@@ -94,10 +94,15 @@ async def lifespan(app: FastAPI):
         app.state.is_indexing = True
         app.state.qdrant_client = qdrant_client
 
-                # 1. Check if the collection exists and get its status
-        info: CollectionInfo = qdrant_client.get_collection(collection_name=COLLECTION_NAME)
-        vector_size = info.points_count if info.points_count is not None else 0
-        
+        try:
+            # Check if the collection exists and get its status
+            info: CollectionInfo = qdrant_client.get_collection(collection_name=COLLECTION_NAME)
+            vector_size = info.points_count if info.points_count is not None else 0
+        except UnexpectedResponse as e:
+            if "Not found" in str(e):
+                vector_size = 0
+
+
         if vector_size == 0:
             # Call ingest_documents once to set global Settings and load the index
             ingest_documents() 
