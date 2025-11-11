@@ -5,6 +5,7 @@ localrag.py
 localrag2.py
 __*
 .pytest_cache
+.mypy_cache
 ollama
 *.docx
 Readme.md

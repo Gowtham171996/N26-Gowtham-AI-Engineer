@@ -12,7 +12,7 @@ services:
     command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     # Essential environment variables for the FastAPI app to connect to other services
     environment:
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY} 
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       # Use the Docker service names for inter-container communication
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333

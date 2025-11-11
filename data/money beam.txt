@@ -1,7 +1,7 @@
 How to use Moneybeam?
 MoneyBeam enables you to send money to your contacts instantly, without having to enter their bank details. You can also request a MoneyBeam from your contacts, in order to receive money. To use MoneyBeam, you and your contacts have to be visible as N26 users.
 
-Sending a MoneyBeam: 
+Sending a MoneyBeam:
 Copy link
 Select Send Money,
 In the contact list, select a recipient with an N26 icon on their profile
@@ -19,7 +19,7 @@ How to add a new recipient?
 Copy link
 From the Home screen choose the Send money tab
 On the contact list screen, simply select the + icon at the top right corner
-Select MoneyBeam 
+Select MoneyBeam
 Enter the recipient's name and phone number or email address
 Alternatively, you can scan a QR code to input the recipient’s details
 Enter the amount and select Continue,
@@ -39,4 +39,3 @@ Limit per 24 hours is €5,000
 *The GIFs are provided to you directly by Giphy, Inc. and not by N26. Be aware that Giphy is a US-based company who may process your personal data in the US. You can find information on how Giphy processes your personal data when you attach and send GIFs in the Giphy Privacy Policy(new tab).
 
 Would you like to tell your friends about us and earn some money at the same time? Learn more about ourfriend referral program.
-

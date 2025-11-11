@@ -33,14 +33,16 @@ Ollama Model Setup
 After installing Ollama, you must pull the models defined in your config.yaml.
 
 # Verify Ollama is running and list available models
-ollama list 
+ollama list
 
 # Pull the required models (as per config.yaml)
-ollama pull nomic-embed-text 
-ollama pull gemma3:1b-it-qat 
+ollama pull nomic-embed-text
+ollama pull gemma3:1b-it-qat
 
 # Optional model you mentioned:
 ollama pull embeddinggemma
+
+pre-commit run --all-files
 
 
 ⚙️ Configuration
@@ -140,7 +142,7 @@ python -m venv venv
 source venv/bin/activate  # On Windows, use: venv\Scripts\activate
 
 # Install required Python packages
-pip install -r requirements.txt 
+pip install -r requirements.txt
 # Note: You'll need to create a requirements.txt containing:
 # fastapi, uvicorn, python-multipart, pydantic, qdrant-client, llama-index, llama-index-llms-ollama, llama-index-embeddings-ollama, llama-index-vector-stores-qdrant, pyyaml
 

@@ -9,7 +9,7 @@
     <style>
         /* Custom font import and utility classes */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
-        
+
         /* ------------------- CSS Variables (Theme Base) ------------------- */
         :root {
             /* Dark Theme (Default) */
@@ -30,14 +30,14 @@
             --text-primary: #24292e;
             --text-secondary: #6a737d;
         }
-        
+
         body {
             font-family: 'Inter', sans-serif;
-            background-color: var(--bg-primary); 
+            background-color: var(--bg-primary);
             color: var(--text-primary);
             transition: background-color 0.3s, color 0.3s;
         }
-        
+
         .dashboard-card {
             background-color: var(--bg-secondary);
             border-color: var(--border-color);
@@ -89,7 +89,7 @@
             max-height: 20rem;
             overflow-y: auto;
         }
-        
+
         /* Theme Toggle Styling */
         .toggle-switch {
             cursor: pointer;
@@ -113,7 +113,7 @@
             background: var(--text-primary);
             transition: left 0.3s;
         }
-        
+
         /* Dark Theme Default */
         .toggle-switch { background-color: #21262d; }
         .toggle-switch.toggled { background-color: #4CAF50; }
@@ -130,7 +130,7 @@
 
     <!-- Dashboard Container -->
     <div class="w-full max-w-4xl p-8 rounded-xl shadow-2xl border dashboard-card">
-        
+
         <!-- Header and Theme Switch -->
         <div class="flex justify-between items-center mb-6 border-b pb-4" style="border-color: var(--border-color);">
             <h1 class="text-3xl font-bold">
@@ -150,10 +150,10 @@
                 </button>
             </div>
         </div>
-        
+
         <!-- Status Grid -->
         <div id="status-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            
+
             <!-- Overall Status -->
             <div class="p-4 rounded-lg shadow-md section-box">
                 <p class="text-sm font-medium" style="color: var(--text-secondary);">Service Status</p>
@@ -216,19 +216,19 @@
         <div class="p-6 rounded-xl shadow-inner border section-box mb-8">
             <h2 class="text-xl font-semibold mb-4">Data Ingestion</h2>
             <div class="flex flex-col sm:flex-row gap-4">
-                <button id="ingest-button" 
+                <button id="ingest-button"
                         class="w-full sm:w-auto flex-grow px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg transition duration-150 ease-in-out disabled:bg-gray-500 disabled:cursor-not-allowed"
                         onclick="triggerIngestion()">
                     Trigger Full Ingestion
                 </button>
-                
-                <button id="delete-button" 
+
+                <button id="delete-button"
                         class="w-full sm:w-auto px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-lg transition duration-150 ease-in-out disabled:bg-gray-500 disabled:cursor-not-allowed"
                         onclick="triggerDelete()">
                     Delete All Data
                 </button>
             </div>
-            
+
             <p id="ingestion-message" class="mt-4 text-sm h-6" style="color: var(--text-secondary);"></p>
         </div>
 
@@ -246,9 +246,9 @@
                        class="w-full px-4 py-2 border rounded-lg focus:ring-purple-500 focus:border-purple-500 shadow-sm input-field"
                        onkeydown="if(event.key === 'Enter') handleQuery()">
             </div>
-            
+
             <!-- Submit Button -->
-            <button id="query-button" 
+            <button id="query-button"
                     class="w-full px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg shadow-lg transition duration-150 ease-in-out disabled:bg-gray-500 disabled:cursor-not-allowed"
                     onclick="handleQuery()">
                 Ask RAG Assistant
@@ -280,7 +280,7 @@
 
     <script>
         const API_BASE_URL = window.location.protocol + '//' + window.location.hostname + ':8000';
-        
+
         const statusElements = {
             overall: document.getElementById('status-overall'),
             qdrant: document.getElementById('status-qdrant'),
@@ -292,7 +292,7 @@
             ingestionMessage: document.getElementById('ingestion-message'),
             icsScore: document.getElementById('status-ics-score'),
             timestamp: document.getElementById('time-last-indexed'),
-            
+
             // QUERY ELEMENTS
             queryInput: document.getElementById('query-input'),
             queryButton: document.getElementById('query-button'),
@@ -302,13 +302,13 @@
             sourcesPlaceholder: document.getElementById('sources-placeholder'),
             themeToggle: document.getElementById('theme-toggle'), // NEW
         };
-        
+
         // --- Theme Toggle Logic (NEW) ---
         function toggleTheme() {
             const body = document.body;
             body.classList.toggle('light-theme');
             statusElements.themeToggle.classList.toggle('toggled');
-            
+
             const currentTheme = body.classList.contains('light-theme') ? 'light' : 'dark';
             localStorage.setItem('theme', currentTheme);
         }
@@ -322,19 +322,19 @@
                 statusElements.themeToggle.classList.add('toggled');
             }
         }
-        
+
         // --- Utility Function to set pill style ---
         function setPillStatus(element, status) {
             element.className = 'status-pill mt-2';
             element.innerHTML = '';
-            
+
             let colorClass, dotColorClass;
 
             // Determine colors based on status
             if (status === "READY" || status === "ONLINE") {
                 colorClass = 'bg-green-900 text-green-300';
                 dotColorClass = 'bg-green-300';
-            } 
+            }
             else if (status === "BUSY" || status === "Processing...") {
                 colorClass = 'bg-blue-900 text-blue-300';
                 dotColorClass = 'bg-blue-300';
@@ -344,7 +344,7 @@
                 colorClass = 'bg-orange-900 text-orange-300';
                 dotColorClass = 'bg-orange-300';
             }
-            else { 
+            else {
                  // Red for errors/offline/unavailable
                  colorClass = 'bg-red-900 text-red-300';
                  dotColorClass = 'bg-red-300';
@@ -358,7 +358,7 @@
         // --- Fetch Status Function ---
         async function fetchStatus() {
             try {
-                const response = await fetch(`${API_BASE_URL}/status`); 
+                const response = await fetch(`${API_BASE_URL}/status`);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -373,12 +373,12 @@
                 // 3. Vector Count
                 statusElements.vectorCount.textContent = data.vector_size.toLocaleString();
                 statusElements.icsScore.textContent = data.health_score.score.toLocaleString();
-                
+
                 // 4. Model Info
                 statusElements.llmModel.textContent = data.llm_model;
                 statusElements.embedModel.textContent = data.embed_model;
                 statusElements.timestamp.textContent = data.health_score.timestamp.toLocaleString();
-                
+
 
 
             } catch (error) {
@@ -390,34 +390,34 @@
                 statusElements.embedModel.textContent = 'Unknown';
                 statusElements.icsScore.textContent = '0';
                 statusElements.timestamp.textContent = 'Unknown';
-                
+
             }
         }
-        
+
         // --- Ingestion Function ---
         async function triggerIngestion() {
             const button = statusElements.ingestButton;
             const originalText = button.textContent;
-            
+
             button.disabled = true;
-            statusElements.deleteButton.disabled = true; 
+            statusElements.deleteButton.disabled = true;
             button.textContent = "Ingesting... Please wait (this may take a minute)";
             statusElements.ingestionMessage.textContent = "Starting ingestion process. Do not refresh.";
-            
+
             setPillStatus(statusElements.qdrant, "Processing...");
             setPillStatus(statusElements.overall, "BUSY");
-            
+
             try {
-                const response = await fetch(`${API_BASE_URL}/ingest`, { 
+                const response = await fetch(`${API_BASE_URL}/ingest`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
-                
+
                 const result = await response.json();
 
                 if (response.ok) {
                     statusElements.ingestionMessage.textContent = result.message;
-                    await fetchStatus(); 
+                    await fetchStatus();
                 } else {
                     statusElements.ingestionMessage.textContent = `Error: ${result.detail || "Failed to start ingestion."}`;
                 }
@@ -427,7 +427,7 @@
                 statusElements.ingestionMessage.textContent = `FATAL ERROR: Could not connect to API for ingestion.`;
             } finally {
                 button.disabled = false;
-                statusElements.deleteButton.disabled = false; 
+                statusElements.deleteButton.disabled = false;
                 button.textContent = originalText;
                 fetchStatus();
             }
@@ -445,26 +445,26 @@
 
             const button = statusElements.deleteButton;
             const originalText = button.textContent;
-            
+
             button.disabled = true;
-            statusElements.ingestButton.disabled = true; 
+            statusElements.ingestButton.disabled = true;
             button.textContent = "Deleting all data...";
             statusElements.ingestionMessage.textContent = "Wiping Qdrant collection and local index. Do not interrupt.";
-            
+
             setPillStatus(statusElements.qdrant, "Processing...");
             setPillStatus(statusElements.overall, "BUSY");
 
             try {
-                const response = await fetch(`${API_BASE_URL}/ingest/delete`, { 
-                    method: 'DELETE', 
+                const response = await fetch(`${API_BASE_URL}/ingest/delete`, {
+                    method: 'DELETE',
                 });
-                
+
                 const result = await response.json();
 
                 if (response.ok) {
                     statusElements.ingestionMessage.textContent = result.message;
                     // IMMEDIATE FEEDBACK FIX: Set the status to reflect an empty state right away
-                    setPillStatus(statusElements.qdrant, "EMPTY (Collection Deleted)"); 
+                    setPillStatus(statusElements.qdrant, "EMPTY (Collection Deleted)");
                     statusElements.vectorCount.textContent = '0';
                     await fetchStatus(); // Fetch status to confirm/cleanup state
                 } else {
@@ -476,7 +476,7 @@
                 statusElements.ingestionMessage.textContent = `FATAL ERROR: Could not connect to API for deletion.`;
             } finally {
                 button.disabled = false;
-                statusElements.ingestButton.disabled = false; 
+                statusElements.ingestButton.disabled = false;
                 button.textContent = originalText;
                 fetchStatus();
             }
@@ -493,7 +493,7 @@
 
             const button = statusElements.queryButton;
             const originalText = button.textContent;
-            
+
             // Clear previous results and messages
             statusElements.ragAnswer.textContent = "Processing query...";
             statusElements.ragSources.innerHTML = '';
@@ -515,7 +515,7 @@
                     // Success
                     statusElements.ragAnswer.textContent = result.answer;
                     statusElements.queryStatusMessage.textContent = "Query successful!";
-                    
+
                     // Display sources
                     displaySources(result.sources);
 
@@ -538,7 +538,7 @@
                 setTimeout(() => statusElements.queryStatusMessage.textContent = '', 5000);
             }
         }
-        
+
         // --- Display Sources Function ---
         function displaySources(sources) {
             const sourcesContainer = statusElements.ragSources;
@@ -567,7 +567,7 @@
             loadTheme();   // Load theme first
             fetchStatus(); // Fetch status immediately on load
             // Poll for status updates every 50 seconds
-            setInterval(fetchStatus, 50000); 
+            setInterval(fetchStatus, 50000);
         });
 
     </script>
